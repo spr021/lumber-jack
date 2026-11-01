@@ -83,6 +83,7 @@ var chips: Array = []
 @onready var game_over_card: Panel = $UI/GameOverCard
 @onready var final_label: Label = $UI/GameOverCard/FinalLabel
 @onready var restart_button: Button = $UI/GameOverCard/RestartButton
+@onready var menu_button: Button = $UI/GameOverCard/MenuButton
 
 
 func _ready() -> void:
@@ -92,11 +93,17 @@ func _ready() -> void:
 	_apply_safe_area()
 	get_viewport().size_changed.connect(_apply_safe_area)
 	restart_button.pressed.connect(_on_restart_pressed)
+	menu_button.pressed.connect(_on_menu_pressed)
 
 
 func _on_restart_pressed() -> void:
 	if state == State.GAME_OVER and elapsed - game_over_at >= 0.35:
 		_reset()
+
+
+func _on_menu_pressed() -> void:
+	if state == State.GAME_OVER and elapsed - game_over_at >= 0.35:
+		get_tree().change_scene_to_file("res://scenes/menu.tscn")
 
 
 func _apply_safe_area() -> void:
