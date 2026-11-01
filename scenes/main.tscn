@@ -1,42 +1,80 @@
-[gd_scene load_steps=6 format=3 uid="uid://ytj6waougeiu"]
+[gd_scene load_steps=11 format=3 uid="uid://ytj6waougeiu"]
 
 [ext_resource type="Script" uid="uid://camgmcl4t5l1k" path="res://scripts/main.gd" id="1_main"]
 
 [sub_resource type="LabelSettings" id="LabelSettings_score"]
-font_size = 96
-outline_size = 18
-outline_color = Color(0.16, 0.1, 0.06, 1)
-
-[sub_resource type="LabelSettings" id="LabelSettings_over"]
-font_size = 84
-outline_size = 16
-outline_color = Color(0.2, 0.06, 0.05, 1)
-
-[sub_resource type="LabelSettings" id="LabelSettings_final"]
-font_size = 54
-outline_size = 12
-outline_color = Color(0.16, 0.1, 0.06, 1)
+font_size = 40
+font_color = Color(0.294, 0.294, 0.294, 1)
 
 [sub_resource type="LabelSettings" id="LabelSettings_hint"]
-font_size = 34
-outline_size = 10
-outline_color = Color(0.16, 0.1, 0.06, 1)
+font_size = 24
+font_color = Color(1, 1, 1, 0.92)
+
+[sub_resource type="LabelSettings" id="LabelSettings_over"]
+font_size = 46
+font_color = Color(1, 0.294, 0.294, 1)
+
+[sub_resource type="LabelSettings" id="LabelSettings_final"]
+font_size = 30
+font_color = Color(0.294, 0.294, 0.294, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_score"]
+bg_color = Color(1, 1, 1, 1)
+corner_radius_top_left = 24
+corner_radius_top_right = 24
+corner_radius_bottom_right = 24
+corner_radius_bottom_left = 24
+shadow_color = Color(0.294, 0.294, 0.294, 0.12)
+shadow_size = 6
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_card"]
+bg_color = Color(1, 1, 1, 1)
+corner_radius_top_left = 28
+corner_radius_top_right = 28
+corner_radius_bottom_right = 28
+corner_radius_bottom_left = 28
+shadow_color = Color(0.294, 0.294, 0.294, 0.18)
+shadow_size = 10
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_btn"]
+bg_color = Color(0.345, 0.8, 0.008, 1)
+corner_radius_top_left = 16
+corner_radius_top_right = 16
+corner_radius_bottom_right = 16
+corner_radius_bottom_left = 16
+border_width_bottom = 6
+border_color = Color(0.345, 0.655, 0, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_btn_pressed"]
+bg_color = Color(0.345, 0.655, 0, 1)
+corner_radius_top_left = 16
+corner_radius_top_right = 16
+corner_radius_bottom_right = 16
+corner_radius_bottom_left = 16
+
+[sub_resource type="StyleBoxEmpty" id="StyleBox_focus"]
 
 [node name="Main" type="Node2D"]
 script = ExtResource("1_main")
 
 [node name="UI" type="CanvasLayer" parent="."]
 
-[node name="ScoreLabel" type="Label" parent="UI"]
-anchors_preset = 5
-anchor_left = 0.5
-anchor_right = 0.5
-offset_left = -220.0
-offset_top = 70.0
-offset_right = 220.0
-offset_bottom = 200.0
-text = "0"
+[node name="ScorePanel" type="Panel" parent="UI"]
+offset_left = 285.0
+offset_top = 52.0
+offset_right = 435.0
+offset_bottom = 128.0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBox_score")
+
+[node name="ScoreLabel" type="Label" parent="UI/ScorePanel"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
 label_settings = SubResource("LabelSettings_score")
+text = "0"
 horizontal_alignment = 1
 vertical_alignment = 1
 
@@ -46,49 +84,64 @@ anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 mouse_filter = 2
-color = Color(0, 0, 0, 0.55)
+color = Color(0.294, 0.294, 0.294, 0.35)
 
-[node name="GameOverLabel" type="Label" parent="UI"]
+[node name="GameOverCard" type="Panel" parent="UI"]
 visible = false
-anchors_preset = 10
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -260.0
+offset_top = -200.0
+offset_right = 260.0
+offset_bottom = 200.0
+theme_override_styles/panel = SubResource("StyleBox_card")
+
+[node name="GameOverLabel" type="Label" parent="UI/GameOverCard"]
 anchor_right = 1.0
-offset_top = 420.0
-offset_bottom = 560.0
-text = "GAME OVER"
+offset_top = 46.0
+offset_bottom = 130.0
 label_settings = SubResource("LabelSettings_over")
+text = "GAME OVER"
 horizontal_alignment = 1
 vertical_alignment = 1
 
-[node name="FinalLabel" type="Label" parent="UI"]
-visible = false
-anchors_preset = 10
+[node name="FinalLabel" type="Label" parent="UI/GameOverCard"]
 anchor_right = 1.0
-offset_top = 580.0
-offset_bottom = 730.0
-text = "SCORE 0"
+offset_top = 150.0
+offset_bottom = 250.0
 label_settings = SubResource("LabelSettings_final")
+text = "SCORE 0"
 horizontal_alignment = 1
 vertical_alignment = 1
 
-[node name="RestartLabel" type="Label" parent="UI"]
-visible = false
-anchors_preset = 10
-anchor_right = 1.0
-offset_top = 960.0
-offset_bottom = 1030.0
-text = "ENTER / TAP to restart"
-label_settings = SubResource("LabelSettings_hint")
-horizontal_alignment = 1
-vertical_alignment = 1
+[node name="RestartButton" type="Button" parent="UI/GameOverCard"]
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -170.0
+offset_top = -114.0
+offset_right = 170.0
+offset_bottom = -44.0
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_pressed_color = Color(1, 1, 1, 1)
+theme_override_font_sizes/font_size = 28
+theme_override_styles/normal = SubResource("StyleBox_btn")
+theme_override_styles/hover = SubResource("StyleBox_btn")
+theme_override_styles/pressed = SubResource("StyleBox_btn_pressed")
+theme_override_styles/focus = SubResource("StyleBox_focus")
+text = "RESTART"
 
 [node name="HintLabel" type="Label" parent="UI"]
 anchors_preset = 12
 anchor_top = 1.0
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_top = -160.0
-offset_bottom = -100.0
-text = "← →  or  A / D  to chop"
+offset_top = -150.0
+offset_bottom = -96.0
 label_settings = SubResource("LabelSettings_hint")
+text = "← →  chop from the side WITHOUT a branch"
 horizontal_alignment = 1
 vertical_alignment = 1

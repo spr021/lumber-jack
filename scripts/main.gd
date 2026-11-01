@@ -470,16 +470,18 @@ func _draw_time_bar() -> void:
 	var track := Rect2(x, y, BAR_W, BAR_H)
 	draw_polygon(_rounded_points(track, BAR_H * 0.5), PackedColorArray([STEEL]))
 	var frac := time_left / TIME_MAX
-	if frac > 0.01:
+	# Skip the fill when it is thinner than one capsule corner radius, so the
+	# rounded polygon never degenerates.
+	if frac > 0.06:
 		var pulse := 1.0
 		if time_left < 0.5:
 			pulse = 0.65 + 0.35 * absf(sin(elapsed * 9.0))
 		var fill := BAR_GREEN
 		var edge := BAR_GREEN_D
-		if frac <= 0.25:
+		if frac <= 0.2:
 			fill = BAR_RED
 			edge = BAR_RED_D
-		elif frac <= 0.5:
+		elif frac <= 0.4:
 			fill = BAR_YELLOW
 			edge = BAR_YELLOW_D
 		if miss_flash > 0.0:
@@ -580,11 +582,11 @@ func _draw_jack(sh: Vector2) -> void:
 	# Arm and axe recoil back for a moment after each chop.
 	var ang := -1.3 * swing_t
 	var shoulder := Vector2(8.0, -92.0)
-	var hand := shoulder + Vector2(31.0, 12.0).rotated(ang)
+	var hand := shoulder + Vector2(35.0, 12.0).rotated(ang)
 	draw_line(shoulder, hand, SKIN, 12.0)
 	draw_circle(shoulder, 9.0, SHIRT)
 	draw_circle(hand, 7.0, SKIN)
-	var tip := hand + Vector2(27.0, 6.0).rotated(ang)
+	var tip := hand + Vector2(34.0, 8.0).rotated(ang)
 	draw_line(hand, tip, HANDLE_WOOD, 9.0)
 	var dir2 := (tip - hand).normalized()
 	var perp := Vector2(-dir2.y, dir2.x)
