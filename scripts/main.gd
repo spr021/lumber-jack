@@ -193,7 +193,10 @@ func _side_from_event(event: InputEvent) -> int:
 		return Side.LEFT
 	if event.is_action_pressed("ui_right") or _key(event, KEY_D):
 		return Side.RIGHT
-	if (event is InputEventScreenTouch or event is InputEventMouseButton) and event.pressed:
+	# Touch arrives as emulated InputEventMouseButton (project default
+	# emulate_mouse_from_touch=true) — handling ScreenTouch here too would
+	# double every tap, and BaseButton-based UI needs the emulation anyway.
+	if event is InputEventMouseButton and event.pressed:
 		return Side.LEFT if event.position.x < _vw() * 0.5 else Side.RIGHT
 	return -1
 
@@ -205,7 +208,7 @@ func _is_confirm(event: InputEvent) -> bool:
 		return false
 	if event.is_action_pressed("ui_accept"):
 		return true
-	if (event is InputEventScreenTouch or event is InputEventMouseButton) and event.pressed:
+	if event is InputEventMouseButton and event.pressed:
 		return true
 	return false
 
