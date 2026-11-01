@@ -1,0 +1,94 @@
+[gd_scene load_steps=6 format=3 uid="uid://ytj6waougeiu"]
+
+[ext_resource type="Script" uid="uid://camgmcl4t5l1k" path="res://scripts/main.gd" id="1_main"]
+
+[sub_resource type="LabelSettings" id="LabelSettings_score"]
+font_size = 96
+outline_size = 18
+outline_color = Color(0.16, 0.1, 0.06, 1)
+
+[sub_resource type="LabelSettings" id="LabelSettings_over"]
+font_size = 84
+outline_size = 16
+outline_color = Color(0.2, 0.06, 0.05, 1)
+
+[sub_resource type="LabelSettings" id="LabelSettings_final"]
+font_size = 54
+outline_size = 12
+outline_color = Color(0.16, 0.1, 0.06, 1)
+
+[sub_resource type="LabelSettings" id="LabelSettings_hint"]
+font_size = 34
+outline_size = 10
+outline_color = Color(0.16, 0.1, 0.06, 1)
+
+[node name="Main" type="Node2D"]
+script = ExtResource("1_main")
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="ScoreLabel" type="Label" parent="UI"]
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -220.0
+offset_top = 70.0
+offset_right = 220.0
+offset_bottom = 200.0
+text = "0"
+label_settings = SubResource("LabelSettings_score")
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Dim" type="ColorRect" parent="UI"]
+visible = false
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+color = Color(0, 0, 0, 0.55)
+
+[node name="GameOverLabel" type="Label" parent="UI"]
+visible = false
+anchors_preset = 10
+anchor_right = 1.0
+offset_top = 420.0
+offset_bottom = 560.0
+text = "GAME OVER"
+label_settings = SubResource("LabelSettings_over")
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="FinalLabel" type="Label" parent="UI"]
+visible = false
+anchors_preset = 10
+anchor_right = 1.0
+offset_top = 580.0
+offset_bottom = 730.0
+text = "SCORE 0"
+label_settings = SubResource("LabelSettings_final")
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="RestartLabel" type="Label" parent="UI"]
+visible = false
+anchors_preset = 10
+anchor_right = 1.0
+offset_top = 960.0
+offset_bottom = 1030.0
+text = "ENTER / TAP to restart"
+label_settings = SubResource("LabelSettings_hint")
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="HintLabel" type="Label" parent="UI"]
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -160.0
+offset_bottom = -100.0
+text = "← →  or  A / D  to chop"
+label_settings = SubResource("LabelSettings_hint")
+horizontal_alignment = 1
+vertical_alignment = 1

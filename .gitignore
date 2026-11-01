@@ -1,0 +1,11 @@
+# Godot 4+ specific ignores
+.godot/
+/android/
+/builds/
+
+# OS / tooling junk
+.DS_Store
+.zcode/
+
+# Large third-party editor plugin (reinstall via its installer; 200MB+ binaries)
+addons/ziva_agent/

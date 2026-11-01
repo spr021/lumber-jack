@@ -1,0 +1,528 @@
+extends Node2D
+## Lumberjack — Timberman-style reaction game.
+##
+## The tree is an endless stack of segments and every segment grows one branch,
+## either left or right. A time bar constantly drains; each correct chop (from
+## the side without a branch) refills it a little, and the drain speeds up with
+## the score. When the bar runs dry the lumberjack drops — the clock is the
+## only killer, chopping into a branch simply earns nothing.
+
+const SEG_H := 150.0
+const SEG_COUNT := 12
+const TRUNK_W := 130.0
+const BRANCH_LEN := 125.0
+const GROUND_MARGIN := 240.0
+const JACK_X := 172.0
+const SLIDE_TIME := 0.09
+const SAVE_PATH := "user://lumberjack.cfg"
+
+# Time bar: the bar holds seconds of life, drains in real time, and each
+# correct chop pays back TIME_REWARD. Drain grows with score up to DRAIN_MAX.
+const TIME_START := 1.0
+const TIME_MAX := 2.0
+const TIME_REWARD := 0.45
+const DRAIN_BASE := 0.9
+const DRAIN_PER_SCORE := 0.01
+const DRAIN_MAX := 1.8
+const BAR_W := 460.0
+const BAR_H := 30.0
+
+enum Side { LEFT, RIGHT }
+enum State { PLAYING, DYING, GAME_OVER }
+
+const SKY := Color("9bd0ee")
+const CLOUD := Color(1.0, 1.0, 1.0, 0.85)
+const GRASS := Color("69a850")
+const GRASS_LIGHT := Color("82c268")
+const TRUNK := Color("8a5a33")
+const BARK := Color("6e4525")
+const LEAF := Color("4e9c44")
+const LEAF_D := Color("3b853a")
+const LEAF_L := Color("68b757")
+const SHIRT := Color("d84b3f")
+const PLAID := Color("b23628")
+const PANTS := Color("2f3a56")
+const BOOT := Color("4a3220")
+const SKIN := Color("f2c094")
+const BEARD := Color("7a4a26")
+const HAT := Color("394a66")
+const HANDLE_WOOD := Color("9a6a3f")
+const STEEL := Color("b9c2cc")
+const STEEL_EDGE := Color("e6ecf2")
+const CHIP := Color("d9b174")
+
+var segments: Array = []
+var jack_side: int = Side.LEFT
+var score := 0
+var best := 0
+var state: int = State.PLAYING
+var slide_offset := 0.0
+var shake := 0.0
+var swing_t := 0.0
+var fall_rot := 0.0
+var death_timer := 0.0
+var elapsed := 0.0
+var time_left := 1.0
+var miss_flash := 0.0
+var game_over_at := 0.0
+var flying: Array = []
+var chips: Array = []
+
+@onready var score_label: Label = $UI/ScoreLabel
+@onready var hint_label: Label = $UI/HintLabel
+@onready var dim: ColorRect = $UI/Dim
+@onready var game_over_label: Label = $UI/GameOverLabel
+@onready var final_label: Label = $UI/FinalLabel
+@onready var restart_label: Label = $UI/RestartLabel
+
+
+func _ready() -> void:
+	best = _load_best()
+	_setup_debug_harness()
+	_reset()
+	_apply_safe_area()
+	get_viewport().size_changed.connect(_apply_safe_area)
+
+
+func _apply_safe_area() -> void:
+	# Keep score and hint text clear of notches and home indicators.
+	var safe := DisplayServer.get_display_safe_area()
+	var win_rect := Rect2(Vector2(DisplayServer.window_get_position()),
+		Vector2(DisplayServer.window_get_size()))
+	if win_rect.size.x <= 0.0 or win_rect.size.y <= 0.0:
+		return
+	var clipped := safe.intersection(win_rect)
+	if clipped.size.x <= 0.0 or clipped.size.y <= 0.0:
+		return
+	var vp_size := get_viewport_rect().size
+	var top: float = clampf((clipped.position.y - win_rect.position.y) * vp_size.y / win_rect.size.y,
+		0.0, vp_size.y * 0.15)
+	var bottom: float = clampf((win_rect.end.y - clipped.end.y) * vp_size.y / win_rect.size.y,
+		0.0, vp_size.y * 0.15)
+	score_label.offset_top = 70.0 + top
+	hint_label.offset_top = -160.0 - bottom
+	hint_label.offset_bottom = -100.0 - bottom
+
+
+func _reset() -> void:
+	segments.clear()
+	# Fair start: the lumberjack begins on the left, so the first branch is on
+	# the right and cannot touch him.
+	segments.append(Side.RIGHT)
+	for i in SEG_COUNT - 1:
+		segments.append(_rand_side())
+	jack_side = Side.LEFT
+	score = 0
+	state = State.PLAYING
+	time_left = TIME_START
+	miss_flash = 0.0
+	slide_offset = 0.0
+	shake = 0.0
+	swing_t = 0.0
+	fall_rot = 0.0
+	death_timer = 0.0
+	flying.clear()
+	chips.clear()
+	score_label.text = "0"
+	hint_label.visible = true
+	dim.visible = false
+	game_over_label.visible = false
+	final_label.visible = false
+	restart_label.visible = false
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	match state:
+		State.PLAYING:
+			var side := _side_from_event(event)
+			if side != -1:
+				chop(side)
+		State.GAME_OVER:
+			if _is_confirm(event):
+				_reset()
+
+
+func _side_from_event(event: InputEvent) -> int:
+	if event.is_action_pressed("ui_left") or _key(event, KEY_A):
+		return Side.LEFT
+	if event.is_action_pressed("ui_right") or _key(event, KEY_D):
+		return Side.RIGHT
+	if (event is InputEventScreenTouch or event is InputEventMouseButton) and event.pressed:
+		return Side.LEFT if event.position.x < _vw() * 0.5 else Side.RIGHT
+	return -1
+
+
+func _is_confirm(event: InputEvent) -> bool:
+	# Ignore taps landing in the first moments after the game-over screen
+	# shows up: on touch devices the fatal last tap often still lingers.
+	if elapsed - game_over_at < 0.35:
+		return false
+	if event.is_action_pressed("ui_accept"):
+		return true
+	if (event is InputEventScreenTouch or event is InputEventMouseButton) and event.pressed:
+		return true
+	return false
+
+
+func _key(event: InputEvent, keycode: Key) -> bool:
+	return event is InputEventKey and event.pressed and not event.echo and event.keycode == keycode
+
+
+func chop(side: int) -> void:
+	if state != State.PLAYING:
+		return
+	jack_side = side
+	_spawn_flying_log()
+	_spawn_chips()
+	segments.pop_front()
+	segments.append(_rand_side())
+	slide_offset = SEG_H
+	swing_t = 1.0
+	hint_label.visible = false
+	if segments[0] == jack_side:
+		# Chopped into a branch: no reward, and the clock keeps draining.
+		miss_flash = 0.3
+		shake = 11.0
+	else:
+		score += 1
+		score_label.text = str(score)
+		time_left = minf(time_left + TIME_REWARD, TIME_MAX)
+		shake = 7.0
+
+
+func _die() -> void:
+	state = State.DYING
+	death_timer = 0.0
+	shake = 12.0
+	if score > best:
+		best = score
+		_save_best(best)
+
+
+func _show_game_over() -> void:
+	state = State.GAME_OVER
+	game_over_at = elapsed
+	dim.visible = true
+	game_over_label.visible = true
+	final_label.visible = true
+	restart_label.visible = true
+	final_label.text = "SCORE %d\nBEST %d" % [score, best]
+
+
+func _process(delta: float) -> void:
+	elapsed += delta
+	if state == State.PLAYING:
+		time_left -= minf(DRAIN_BASE + DRAIN_PER_SCORE * score, DRAIN_MAX) * delta
+		if time_left <= 0.0:
+			time_left = 0.0
+			_die()
+	miss_flash = move_toward(miss_flash, 0.0, delta)
+	slide_offset = move_toward(slide_offset, 0.0, SEG_H * delta / SLIDE_TIME)
+	shake = move_toward(shake, 0.0, 46.0 * delta)
+	swing_t = move_toward(swing_t, 0.0, delta / 0.12)
+	_update_flying(delta)
+	_update_chips(delta)
+	if state == State.DYING:
+		death_timer += delta
+		fall_rot = -1.9 * _back_ease(minf(death_timer / 0.4, 1.0))
+		if death_timer >= 0.9:
+			_show_game_over()
+	queue_redraw()
+
+
+func _rand_side() -> int:
+	return Side.LEFT if randi() % 2 == 0 else Side.RIGHT
+
+
+func _back_ease(t: float) -> float:
+	return 1.0 - (1.0 - t) * (1.0 - t)
+
+
+func _spawn_flying_log() -> void:
+	# The chopped log kicks off away from the lumberjack's axe.
+	var dir := 1.0 if jack_side == Side.LEFT else -1.0
+	flying.append({
+		"pos": Vector2(_vw() * 0.5, _ground_y() - SEG_H * 0.5),
+		"vel": Vector2(dir * randf_range(420.0, 640.0), -randf_range(260.0, 480.0)),
+		"rot": 0.0,
+		"rot_vel": dir * randf_range(5.0, 9.0),
+		"branch": segments[0],
+	})
+
+
+func _spawn_chips() -> void:
+	var dir := -1.0 if jack_side == Side.LEFT else 1.0
+	var origin := Vector2(
+		_vw() * 0.5 + dir * (TRUNK_W * 0.5 - 6.0),
+		_ground_y() - SEG_H * 0.55
+	)
+	for i in 12:
+		chips.append({
+			"pos": origin,
+			"vel": Vector2(dir * randf_range(60.0, 520.0), -randf_range(120.0, 700.0)),
+			"size": randf_range(4.0, 10.0),
+			"life": randf_range(0.35, 0.7),
+			"rot": randf() * TAU,
+		})
+
+
+func _update_flying(delta: float) -> void:
+	for i in range(flying.size() - 1, -1, -1):
+		var piece: Dictionary = flying[i]
+		piece.pos += piece.vel * delta
+		piece.vel.y += 2100.0 * delta
+		piece.rot += piece.rot_vel * delta
+		if piece.pos.y > _vh() + 200.0 or piece.pos.x < -300.0 or piece.pos.x > _vw() + 300.0:
+			flying.remove_at(i)
+
+
+func _update_chips(delta: float) -> void:
+	for i in range(chips.size() - 1, -1, -1):
+		var chip: Dictionary = chips[i]
+		chip.pos += chip.vel * delta
+		chip.vel.y += 2500.0 * delta
+		chip.rot += 6.0 * delta
+		chip.life -= delta
+		if chip.life <= 0.0:
+			chips.remove_at(i)
+
+
+func _load_best() -> int:
+	var config := ConfigFile.new()
+	if config.load(SAVE_PATH) == OK:
+		return config.get_value("game", "best", 0)
+	return 0
+
+
+func _save_best(value: int) -> void:
+	var config := ConfigFile.new()
+	config.set_value("game", "best", value)
+	config.save(SAVE_PATH)
+
+
+# ---------------------------------------------------------- debug harness ---
+# Test automation only; inactive unless the game is started with user args:
+#   godot --path . ++ seed=12345 seq=LLRR out=/tmp/shot
+# `seq` auto-chops that side sequence (0.15s apart) and saves a screenshot
+# after every chop, so scripted runs can be inspected visually.
+
+func _setup_debug_harness() -> void:
+	var args := OS.get_cmdline_user_args()
+	if args.is_empty():
+		randomize()
+		return
+	var prefix := "/tmp/lj_shot"
+	var seq := ""
+	for arg in args:
+		if arg.begins_with("seed="):
+			seed(arg.substr(5).to_int())
+		elif arg.begins_with("seq="):
+			seq = arg.substr(4)
+		elif arg.begins_with("out="):
+			prefix = arg.substr(4)
+	_run_harness_sequence.call_deferred(prefix, seq)
+
+
+func _run_harness_sequence(prefix: String, seq: String) -> void:
+	await get_tree().create_timer(0.5).timeout
+	await _shot(prefix + "_start.png")
+	if seq == "auto":
+		# Bot: always chop from the side the next branch is not on.
+		for i in 8:
+			chop(Side.RIGHT if segments[1] == Side.LEFT else Side.LEFT)
+			await get_tree().create_timer(0.15).timeout
+			await _shot("%s_%02d.png" % [prefix, i + 1])
+	else:
+		for i in seq.length():
+			chop(Side.LEFT if seq[i] == "L" else Side.RIGHT)
+			await get_tree().create_timer(0.15).timeout
+			await _shot("%s_%02d.png" % [prefix, i + 1])
+	await get_tree().create_timer(1.2).timeout
+	await _shot(prefix + "_end.png")
+	if state == State.GAME_OVER:
+		# Exercise the real restart path: inject an Enter press.
+		var ev := InputEventKey.new()
+		ev.keycode = KEY_ENTER
+		ev.pressed = true
+		Input.parse_input_event(ev)
+		await get_tree().create_timer(0.2).timeout
+		await _shot(prefix + "_restart.png")
+		print("RESTART state=", state, " score=", score, " jack=",
+			"L" if jack_side == Side.LEFT else "R")
+	get_tree().quit()
+
+
+func _shot(path: String) -> void:
+	await RenderingServer.frame_post_draw
+	var img := get_viewport().get_texture().get_image()
+	img.save_png(path)
+	_verify_pixels(img)
+
+
+func _verify_pixels(img: Image) -> void:
+	# The window backbuffer is the canvas scaled down; convert game
+	# coordinates to image pixels before sampling.
+	var vp_size := get_viewport_rect().size
+	var s := Vector2(img.get_size()) / vp_size
+	var jack_x := vp_size.x * 0.5 + (JACK_X if jack_side == Side.RIGHT else -JACK_X)
+	var checks: Array = [
+		["sky", Vector2(30.0, 30.0), SKY],
+		["trunk", Vector2(vp_size.x * 0.5, _ground_y() - 90.0), TRUNK],
+		["grass", Vector2(vp_size.x * 0.5, vp_size.y - 50.0), GRASS],
+		["shirt", Vector2(jack_x - 10.0, _ground_y() - 75.0), SHIRT],
+	]
+	for check in checks:
+		var got: Color = img.get_pixel(int(check[1].x * s.x), int(check[1].y * s.y))
+		var expect: Color = check[2]
+		var close := absf(got.r - expect.r) < 0.05 and absf(got.g - expect.g) < 0.05 \
+			and absf(got.b - expect.b) < 0.05
+		print("PIXEL ", check[0], " expect=", expect.to_html(false),
+			" got=", got.to_html(false), " ", "OK" if close else "MISMATCH")
+	print("STATE score=", score, " jack=", "L" if jack_side == Side.LEFT else "R",
+		" phase=", state, " time_left=%.2f" % time_left,
+		" segs(bottom-up)=", segments)
+
+
+# ---------------------------------------------------------------- drawing ---
+
+func _vw() -> float:
+	return get_viewport_rect().size.x
+
+
+func _vh() -> float:
+	return get_viewport_rect().size.y
+
+
+func _ground_y() -> float:
+	return _vh() - GROUND_MARGIN
+
+
+func _draw() -> void:
+	var sh := Vector2(randf_range(-shake, shake), randf_range(-shake, shake))
+	var vw := _vw()
+	var ground := _ground_y()
+	draw_rect(Rect2(0.0, 0.0, vw, ground), SKY)
+	_draw_clouds()
+	draw_rect(Rect2(0.0, ground + sh.y, vw, _vh() - ground + 40.0), GRASS)
+	draw_rect(Rect2(0.0, ground + sh.y, vw, 16.0), GRASS_LIGHT)
+	for i in segments.size():
+		var top := ground - float(i + 1) * SEG_H + slide_offset + sh.y
+		if top > _vh():
+			continue
+		if top + SEG_H < -40.0:
+			break
+		_draw_segment(segments[i], top, vw * 0.5 + sh.x)
+	_draw_chips(sh)
+	_draw_flying_logs(sh)
+	_draw_jack(sh)
+	_draw_time_bar()
+
+
+func _draw_time_bar() -> void:
+	var x := (_vw() - BAR_W) * 0.5
+	var y := 238.0
+	draw_rect(Rect2(x - 4.0, y - 4.0, BAR_W + 8.0, BAR_H + 8.0), Color(0.16, 0.1, 0.06, 0.85))
+	draw_rect(Rect2(x, y, BAR_W, BAR_H), Color(0.1, 0.09, 0.07, 0.92))
+	var frac := time_left / TIME_MAX
+	# The bar pulses when it is nearly empty to warn the player.
+	var pulse := 1.0
+	if time_left < 0.5:
+		pulse = 0.65 + 0.35 * absf(sin(elapsed * 9.0))
+	var fill := Color("6fc45f")
+	if frac <= 0.25:
+		fill = Color("d84b3f")
+	elif frac <= 0.5:
+		fill = Color("e8b83a")
+	if miss_flash > 0.0:
+		fill = Color("ff5a4a")
+	draw_rect(Rect2(x, y, BAR_W * frac, BAR_H), Color(fill, pulse))
+
+
+func _draw_clouds() -> void:
+	var span := _vw() + 360.0
+	var drift := fmod(elapsed * 10.0, span) - 180.0
+	_draw_cloud(Vector2(drift, 190.0), 1.0)
+	_draw_cloud(Vector2(fmod(drift + span * 0.55, span) - 180.0, 340.0), 0.7)
+
+
+func _draw_cloud(center: Vector2, s: float) -> void:
+	draw_circle(center + Vector2(-40.0 * s, 8.0 * s), 24.0 * s, CLOUD)
+	draw_circle(center + Vector2(0.0, -10.0 * s), 34.0 * s, CLOUD)
+	draw_circle(center + Vector2(42.0 * s, 8.0 * s), 24.0 * s, CLOUD)
+	draw_rect(Rect2(center + Vector2(-40.0 * s, 8.0 * s), Vector2(82.0 * s, 22.0 * s)), CLOUD)
+
+
+func _draw_segment(branch: int, top: float, cx: float) -> void:
+	draw_rect(Rect2(cx - TRUNK_W * 0.5, top, TRUNK_W, SEG_H), TRUNK)
+	draw_rect(Rect2(cx - TRUNK_W * 0.5, top, 9.0, SEG_H), BARK)
+	draw_rect(Rect2(cx + TRUNK_W * 0.5 - 9.0, top, 9.0, SEG_H), BARK)
+	draw_rect(Rect2(cx - TRUNK_W * 0.5, top, TRUNK_W, 7.0), BARK)
+	var dir := -1.0 if branch == Side.LEFT else 1.0
+	var by := top + SEG_H * 0.58
+	var x0 := cx + dir * (TRUNK_W * 0.5 - 4.0)
+	var x1 := x0 + dir * BRANCH_LEN
+	draw_rect(Rect2(Vector2(minf(x0, x1), by - 8.0), Vector2(absf(x1 - x0), 16.0)), BARK)
+	draw_circle(Vector2(x1 - dir * 34.0, by - 22.0), 27.0, LEAF_D)
+	draw_circle(Vector2(x1, by + 4.0), 34.0, LEAF)
+	draw_circle(Vector2(x1 - dir * 30.0, by + 18.0), 24.0, LEAF_L)
+
+
+func _draw_flying_logs(sh: Vector2) -> void:
+	for piece in flying:
+		draw_set_transform(piece.pos + sh, piece.rot, Vector2.ONE)
+		draw_rect(Rect2(-TRUNK_W * 0.5, -SEG_H * 0.5, TRUNK_W, SEG_H), TRUNK)
+		draw_rect(Rect2(-TRUNK_W * 0.5, -SEG_H * 0.5, 9.0, SEG_H), BARK)
+		draw_rect(Rect2(TRUNK_W * 0.5 - 9.0, -SEG_H * 0.5, 9.0, SEG_H), BARK)
+		var dir := -1.0 if piece.branch == Side.LEFT else 1.0
+		var by := -SEG_H * 0.5 + SEG_H * 0.58
+		var x0 := dir * (TRUNK_W * 0.5 - 4.0)
+		var x1 := x0 + dir * BRANCH_LEN
+		draw_rect(Rect2(Vector2(minf(x0, x1), by - 8.0), Vector2(absf(x1 - x0), 16.0)), BARK)
+		draw_circle(Vector2(x1, by + 4.0), 30.0, LEAF)
+		draw_circle(Vector2(x1 - dir * 26.0, by + 16.0), 22.0, LEAF_L)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+func _draw_chips(sh: Vector2) -> void:
+	for chip in chips:
+		draw_set_transform(chip.pos + sh, chip.rot, Vector2.ONE)
+		draw_rect(Rect2(-chip.size * 0.5, -chip.size * 0.5, chip.size, chip.size), CHIP)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+func _draw_jack(sh: Vector2) -> void:
+	var base := Vector2(
+		_vw() * 0.5 + (JACK_X if jack_side == Side.RIGHT else -JACK_X),
+		_ground_y()
+	)
+	var mirror := Vector2(1.0, 1.0) if jack_side == Side.LEFT else Vector2(-1.0, 1.0)
+	draw_set_transform(base + sh, fall_rot, mirror)
+	# Local space from here on: origin at the feet, facing +x toward the trunk.
+	draw_rect(Rect2(-16.0, -62.0, 12.0, 50.0), PANTS)
+	draw_rect(Rect2(4.0, -62.0, 12.0, 50.0), PANTS)
+	draw_rect(Rect2(-20.0, -14.0, 16.0, 14.0), BOOT)
+	draw_rect(Rect2(2.0, -14.0, 20.0, 14.0), BOOT)
+	draw_rect(Rect2(-20.0, -108.0, 40.0, 50.0), SHIRT)
+	draw_rect(Rect2(-20.0, -108.0, 40.0, 6.0), PLAID)
+	draw_rect(Rect2(-20.0, -90.0, 40.0, 6.0), PLAID)
+	draw_rect(Rect2(-4.0, -108.0, 6.0, 50.0), PLAID)
+	draw_circle(Vector2(2.0, -124.0), 17.0, SKIN)
+	draw_rect(Rect2(-14.0, -122.0, 14.0, 16.0), BEARD)
+	draw_rect(Rect2(-14.0, -142.0, 34.0, 10.0), HAT)
+	# Arm and axe recoil back for a moment after each chop.
+	var ang := -1.3 * swing_t
+	var shoulder := Vector2(6.0, -100.0)
+	var hand := shoulder + (Vector2(30.0, 2.0) - shoulder).rotated(ang) + Vector2(24.0, 0.0).rotated(ang)
+	draw_line(shoulder, hand, SKIN, 9.0)
+	var tip := hand + Vector2(26.0, 8.0).rotated(ang)
+	draw_line(hand, tip, HANDLE_WOOD, 7.0)
+	var dir2 := (tip - hand).normalized()
+	var perp := Vector2(-dir2.y, dir2.x)
+	var blade := PackedVector2Array([
+		tip + dir2 * 4.0 + perp * 18.0,
+		tip + dir2 * 18.0 + perp * 16.0,
+		tip + dir2 * 18.0 - perp * 6.0,
+		tip + dir2 * 4.0 - perp * 4.0,
+	])
+	draw_polygon(blade, PackedColorArray([STEEL, STEEL, STEEL_EDGE, STEEL_EDGE]))
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
