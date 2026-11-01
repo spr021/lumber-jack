@@ -24,6 +24,16 @@ const TIME_REWARD := 0.45
 const DRAIN_BASE := 0.9
 const DRAIN_PER_SCORE := 0.01
 const DRAIN_MAX := 1.8
+# Wrong chops are not free: the bar pays TIME_PENALTY (more than TIME_REWARD),
+# so mashing both sides bleeds time instead of breaking even. CHOP_COOLDOWN
+# debounces one input from registering as two chops.
+const TIME_PENALTY := 0.6
+const CHOP_COOLDOWN := 0.1
+# Combo: consecutive correct chops. Every correct chop scores its multiplier
+# tier (x2 from COMBO_TIER_2, x3 from _3, x4 from _4); a wrong chop resets it.
+const COMBO_TIER_2 := 5
+const COMBO_TIER_3 := 10
+const COMBO_TIER_4 := 20
 const BAR_W := 460.0
 const BAR_H := 30.0
 
@@ -59,6 +69,8 @@ const STEEL_EDGE := Color("ffffff")
 const CHIP := Color("ffc800")
 const CHIP2 := Color("ff9600")
 const UI_TEXT := Color("4b4b4b")
+const UI_GREY := Color(0.71, 0.72, 0.74)
+const UI_GREY_D := Color(0.58, 0.59, 0.62)
 const BAR_GREEN := Color("58cc02")
 const BAR_GREEN_D := Color("58a700")
 const BAR_YELLOW := Color("ffc800")
@@ -82,6 +94,9 @@ var miss_flash := 0.0
 var game_over_at := 0.0
 var flying: Array = []
 var chips: Array = []
+var pops: Array = []
+var combo := 0
+var last_chop_at := -10.0
 
 @onready var score_panel: Panel = $UI/ScorePanel
 @onready var score_label: Label = $UI/ScorePanel/ScoreLabel
@@ -143,6 +158,8 @@ func _reset() -> void:
 		segments.append(_rand_side())
 	jack_side = Side.LEFT
 	score = 0
+	combo = 0
+	last_chop_at = -10.0
 	state = State.PLAYING
 	time_left = TIME_START
 	miss_flash = 0.0
@@ -153,6 +170,7 @@ func _reset() -> void:
 	death_timer = 0.0
 	flying.clear()
 	chips.clear()
+	pops.clear()
 	score_label.text = "0"
 	hint_label.visible = true
 	dim.visible = false
@@ -199,6 +217,10 @@ func _key(event: InputEvent, keycode: Key) -> bool:
 func chop(side: int) -> void:
 	if state != State.PLAYING:
 		return
+	# Debounce: one input must never register as two chops.
+	if elapsed - last_chop_at < CHOP_COOLDOWN:
+		return
+	last_chop_at = elapsed
 	jack_side = side
 	_spawn_flying_log()
 	_spawn_chips()
@@ -208,14 +230,33 @@ func chop(side: int) -> void:
 	swing_t = 1.0
 	hint_label.visible = false
 	if segments[0] == jack_side:
-		# Chopped into a branch: no reward, and the clock keeps draining.
+		# Chopped into a branch: the bar pays a penalty bigger than the
+		# reward, so mashing both sides bleeds time instead of breaking
+		# even, and the combo breaks too.
 		miss_flash = 0.3
 		shake = 11.0
+		time_left = maxf(time_left - TIME_PENALTY, 0.0)
+		combo = 0
 	else:
-		score += 1
+		var prev_mult := _combo_multiplier(combo)
+		combo += 1
+		var mult := _combo_multiplier(combo)
+		score += mult
 		score_label.text = str(score)
 		time_left = minf(time_left + TIME_REWARD, TIME_MAX)
 		shake = 7.0
+		if mult > prev_mult:
+			_spawn_pop("x%d!" % mult)
+
+
+func _combo_multiplier(streak: int) -> int:
+	if streak >= COMBO_TIER_4:
+		return 4
+	if streak >= COMBO_TIER_3:
+		return 3
+	if streak >= COMBO_TIER_2:
+		return 2
+	return 1
 
 
 func _die() -> void:
@@ -248,6 +289,7 @@ func _process(delta: float) -> void:
 	swing_t = move_toward(swing_t, 0.0, delta / 0.12)
 	_update_flying(delta)
 	_update_chips(delta)
+	_update_pops(delta)
 	if state == State.DYING:
 		death_timer += delta
 		fall_rot = -1.9 * _back_ease(minf(death_timer / 0.4, 1.0))
@@ -311,6 +353,26 @@ func _update_chips(delta: float) -> void:
 		chip.life -= delta
 		if chip.life <= 0.0:
 			chips.remove_at(i)
+
+
+func _spawn_pop(text: String) -> void:
+	# Celebratory floating text (e.g. a combo tier-up) above the lumberjack.
+	var x := _vw() * 0.5 + (JACK_X if jack_side == Side.RIGHT else -JACK_X)
+	pops.append({
+		"text": text,
+		"pos": Vector2(x, _ground_y() - 230.0),
+		"life": 0.9,
+		"total": 0.9,
+	})
+
+
+func _update_pops(delta: float) -> void:
+	for i in range(pops.size() - 1, -1, -1):
+		var pop: Dictionary = pops[i]
+		pop.pos.y -= 90.0 * delta
+		pop.life -= delta
+		if pop.life <= 0.0:
+			pops.remove_at(i)
 
 
 func _load_best() -> int:
@@ -407,7 +469,8 @@ func _verify_pixels(img: Image) -> void:
 			and absf(got.b - expect.b) < 0.05
 		print("PIXEL ", check[0], " expect=", expect.to_html(false),
 			" got=", got.to_html(false), " ", "OK" if close else "MISMATCH")
-	print("STATE score=", score, " jack=", "L" if jack_side == Side.LEFT else "R",
+	print("STATE score=", score, " combo=", combo,
+		" jack=", "L" if jack_side == Side.LEFT else "R",
 		" phase=", state, " time_left=%.2f" % time_left,
 		" segs(bottom-up)=", segments)
 
@@ -479,7 +542,9 @@ func _draw() -> void:
 	_draw_chips(sh)
 	_draw_flying_logs(sh)
 	_draw_jack(sh)
+	_draw_pops()
 	_draw_time_bar()
+	_draw_combo_badge()
 
 
 func _draw_bushes(ground: float, vw: float) -> void:
@@ -487,6 +552,46 @@ func _draw_bushes(ground: float, vw: float) -> void:
 		var x := vw * (0.12 + 0.19 * k)
 		var r := 26.0 if k % 2 == 0 else 18.0
 		draw_circle(Vector2(x, ground + 4.0), r, GRASS_LIGHT)
+
+
+func _draw_pops() -> void:
+	var font := ThemeDB.fallback_font
+	for pop in pops:
+		var alpha: float = minf(pop.life / pop.total * 2.0, 1.0)
+		draw_string(font, Vector2(pop.pos.x - 220.0, pop.pos.y), pop.text,
+			HORIZONTAL_ALIGNMENT_CENTER, 440.0, 46, Color(HAT, alpha))
+
+
+func _draw_combo_badge() -> void:
+	if state != State.PLAYING or combo < 2:
+		return
+	var mult := _combo_multiplier(combo)
+	var text := "COMBO %d" % combo
+	if mult > 1:
+		text += "  x%d" % mult
+	var fill := UI_GREY
+	var edge := UI_GREY_D
+	var text_color := UI_TEXT
+	match mult:
+		2:
+			fill = BAR_GREEN
+			edge = BAR_GREEN_D
+			text_color = Color.WHITE
+		3:
+			fill = BAR_YELLOW
+			edge = BAR_YELLOW_D
+			text_color = Color.WHITE
+		4:
+			fill = BAR_RED
+			edge = BAR_RED_D
+			text_color = Color.WHITE
+	var font := ThemeDB.fallback_font
+	var fsize := 24
+	var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize).x
+	var rect := Rect2(_vw() * 0.5 - (w + 28.0) * 0.5, 240.0 + BAR_H + 12.0, w + 28.0, 40.0)
+	_draw_block(rect, 20.0, fill, edge, 5.0)
+	draw_string(font, rect.position + Vector2(0.0, 27.0), text,
+		HORIZONTAL_ALIGNMENT_CENTER, rect.size.x, fsize, text_color)
 
 
 func _draw_time_bar() -> void:
