@@ -4,7 +4,8 @@ extends Node2D
 ##
 ## Mirrors the game's procedural art style; palette and geometry come straight
 ## from scripts/main.gd constants (preloaded below) so the two can't drift.
-## Any tap, click, or key — or the PLAY button — starts the game.
+## The wooden title sign and its leaf sprigs are drawn to match the tree art.
+## The game starts only through the PLAY button.
 
 const G := preload("res://scripts/main.gd")
 
@@ -12,9 +13,9 @@ var best := 0
 var elapsed := 0.0
 var segments: Array = []
 
+@onready var title_card: Panel = $UI/TitleCard
 @onready var best_label: Label = $UI/BestPanel/BestLabel
 @onready var play_button: Button = $UI/PlayButton
-@onready var quit_button: Button = $UI/QuitButton
 
 
 func _ready() -> void:
@@ -23,9 +24,6 @@ func _ready() -> void:
 	best = _load_best()
 	best_label.text = "BEST %d" % best
 	play_button.pressed.connect(_on_play_pressed)
-	quit_button.pressed.connect(_on_quit_pressed)
-	if OS.get_name() in ["Android", "iOS"]:
-		quit_button.visible = false
 	_build_tree()
 
 
@@ -42,21 +40,8 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 
-func _unhandled_input(event: InputEvent) -> void:
-	var tapped := false
-	if (event is InputEventScreenTouch or event is InputEventMouseButton) and event.pressed:
-		tapped = true
-	if event.is_action_pressed("ui_accept") or tapped \
-			or (event is InputEventKey and event.pressed and not event.echo):
-		_on_play_pressed()
-
-
 func _on_play_pressed() -> void:
 	get_tree().change_scene_to_file("res://scenes/main.tscn")
-
-
-func _on_quit_pressed() -> void:
-	get_tree().quit()
 
 
 func _load_best() -> int:
@@ -89,8 +74,7 @@ func _run_harness() -> void:
 			prefix = arg.substr(4)
 	await get_tree().create_timer(0.6).timeout
 	await _shot(prefix + "_menu.png")
-	print("MENU state=menu best=", best, " quit=", quit_button.visible,
-		" segs(bottom-up)=", segments)
+	print("MENU state=menu best=", best, " segs(bottom-up)=", segments)
 	_on_play_pressed()
 
 
@@ -110,9 +94,34 @@ func _draw() -> void:
 	draw_rect(Rect2(0.0, ground, vw, vh - ground + 40.0), G.GRASS)
 	draw_rect(Rect2(0.0, ground, vw, 14.0), G.GRASS_LIGHT)
 	_draw_bushes(ground, vw)
+	# Same continuous-trunk tree as the game scene, so menu and gameplay
+	# read as one world.
+	var cx := vw * 0.5
+	draw_rect(Rect2(cx - G.TRUNK_W * 0.5, -80.0, G.TRUNK_W, ground + 80.0), G.TRUNK_D)
 	for i in segments.size():
-		_draw_segment(segments[i], ground - float(i + 1) * G.SEG_H, vw * 0.5)
-	_draw_jack(Vector2(vw * 0.5 - G.JACK_X, ground))
+		var dir := -1.0 if segments[i] == G.Side.LEFT else 1.0
+		_branch_assembly(dir, ground - float(i + 1) * G.SEG_H + G.SEG_H * 0.58,
+			cx + dir * (G.TRUNK_W * 0.5))
+	draw_rect(Rect2(cx - G.TRUNK_W * 0.5 + G.BAND, -80.0, G.TRUNK_W - G.BAND, ground + 80.0),
+		G.TRUNK)
+	_draw_trunk_stripes(cx, ground)
+	_draw_jack(Vector2(cx - G.JACK_X, ground))
+	_draw_sign_sprigs()
+
+
+func _draw_sign_sprigs() -> void:
+	# Leaf clusters peeking out from behind the wooden title sign. They live
+	# in the world layer, so they render above the tree but behind the sign.
+	var rect := title_card.get_global_rect()
+	_leaf_sprig(rect.position + Vector2(42.0, 16.0), -1.0)
+	_leaf_sprig(rect.position + Vector2(rect.size.x - 42.0, 16.0), 1.0)
+
+
+func _leaf_sprig(center: Vector2, dir: float) -> void:
+	draw_circle(center + Vector2(dir * 12.0, -16.0), 20.0, G.LEAF)
+	draw_circle(center + Vector2(dir * 36.0, -4.0), 15.0, G.LEAF)
+	draw_circle(center + Vector2(dir * 24.0, -30.0), 13.0, G.LEAF_L)
+	draw_circle(center + Vector2(dir * 46.0, -18.0), 9.0, G.LEAF_L)
 
 
 func _draw_bushes(ground: float, vw: float) -> void:
@@ -136,20 +145,67 @@ func _draw_cloud(center: Vector2, s: float) -> void:
 	draw_rect(Rect2(center + Vector2(-40.0 * s, 8.0 * s), Vector2(82.0 * s, 22.0 * s)), G.CLOUD)
 
 
-func _draw_segment(branch: int, top: float, cx: float) -> void:
-	_draw_block(Rect2(cx - G.TRUNK_W * 0.5, top, G.TRUNK_W, G.SEG_H), 22.0,
-		G.TRUNK, G.TRUNK_D)
-	var dir := -1.0 if branch == G.Side.LEFT else 1.0
-	var by := top + G.SEG_H * 0.58
-	var x0 := cx + dir * (G.TRUNK_W * 0.5 - 6.0)
-	var x1 := x0 + dir * (G.BRANCH_LEN - 24.0)
-	draw_line(Vector2(x0, by), Vector2(x1, by), G.BARK, 13.0)
-	draw_circle(Vector2(x0, by), 6.5, G.BARK)
-	draw_circle(Vector2(x1, by), 6.5, G.BARK)
-	draw_circle(Vector2(x1 + dir * 12.0, by - 4.0), 21.0, G.LEAF)
-	draw_circle(Vector2(x1 + dir * 30.0, by + 6.0), 26.0, G.LEAF)
-	draw_circle(Vector2(x1 + dir * 16.0, by + 14.0), 15.0, G.LEAF_L)
-	draw_circle(Vector2(x1 + dir * 22.0, by - 12.0), 12.0, G.LEAF_L)
+func _draw_trunk_stripes(cx: float, ground: float) -> void:
+	draw_polygon(_rounded_points(Rect2(cx + 2.0, -80.0, 13.0, ground + 56.0), 6.5),
+		PackedColorArray([G.TRUNK_L]))
+	draw_polygon(_rounded_points(Rect2(cx + 27.0, -80.0, 11.0, ground - 210.0), 5.5),
+		PackedColorArray([G.TRUNK_L]))
+
+
+func _branch_points(edge: float, by: float) -> PackedVector2Array:
+	var h := 18.0
+	var rf := 16.0
+	var rb := 24.0
+	var rc := 18.0
+	var tip := edge + G.BRANCH_LEN
+	var pts := PackedVector2Array()
+	pts.append(Vector2(edge, by - h - rf))
+	var c_top := Vector2(edge + rf, by - h - rf)
+	for i in range(1, 6):
+		var a: float = PI - (PI * 0.5) * i / 5.0
+		pts.append(c_top + Vector2.from_angle(a) * rf)
+	for i in 8:
+		var a: float = -PI * 0.5 + PI * i / 7.0
+		pts.append(Vector2(tip - rc, by) + Vector2.from_angle(a) * rc)
+	var c_bot := Vector2(edge + rb, by + h + rb)
+	for i in 6:
+		var a: float = PI * 0.5 + (PI * 0.5) * i / 5.0
+		pts.append(c_bot + Vector2.from_angle(a) * rb)
+	return pts
+
+
+func _draw_branch_poly(edge: float, by: float, dir: float) -> void:
+	var pts := _branch_points(edge, by)
+	if dir < 0.0:
+		for i in pts.size():
+			pts[i] = Vector2(2.0 * edge - pts[i].x, pts[i].y)
+	draw_polygon(pts, PackedColorArray([G.TRUNK]))
+
+
+func _span_rect(x1: float, x2: float, y: float, h: float) -> Rect2:
+	return Rect2(minf(x1, x2), y, absf(x2 - x1), h)
+
+
+func _draw_pill(center: Vector2, w: float, h: float, color: Color) -> void:
+	draw_polygon(_rounded_points(Rect2(center - Vector2(w, h) * 0.5, Vector2(w, h)), h * 0.5),
+		PackedColorArray([color]))
+
+
+func _draw_canopy(dir: float, by: float, tip: float) -> void:
+	_draw_pill(Vector2(tip - dir * 10.0, by - 40.0), 150.0, 54.0, G.CANOPY_D)
+	_draw_pill(Vector2(tip - dir * 24.0, by - 72.0), 114.0, 52.0, G.CANOPY)
+	_draw_pill(Vector2(tip - dir * 34.0, by - 101.0), 76.0, 46.0, G.CANOPY_L)
+	_draw_pill(Vector2(tip - dir * 52.0, by - 46.0), 18.0, 9.0, G.CANOPY_HL)
+	_draw_pill(Vector2(tip - dir * 20.0, by - 64.0), 16.0, 8.0, G.CANOPY_HL)
+	_draw_pill(Vector2(tip - dir * 40.0, by - 96.0), 14.0, 8.0, G.CANOPY_HL)
+
+
+func _branch_assembly(dir: float, by: float, edge: float) -> void:
+	_draw_branch_poly(edge, by, dir)
+	var shade_to := edge + dir * (G.BRANCH_LEN - 44.0)
+	draw_polygon(_rounded_points(_span_rect(edge + dir * 12.0, shade_to, by + 5.0, 10.0), 5.0),
+		PackedColorArray([G.TRUNK_D]))
+	_draw_canopy(dir, by, edge + dir * G.BRANCH_LEN)
 
 
 func _draw_jack(base: Vector2) -> void:
@@ -197,7 +253,9 @@ func _block_local(rect: Rect2, radius: float, color: Color) -> void:
 
 
 func _rounded_points(rect: Rect2, radius: float, seg := 5) -> PackedVector2Array:
-	var r := minf(radius, minf(rect.size.x, rect.size.y) * 0.5)
+	# Same degenerate-arc guard as main.gd: shave a hair off the clamp so
+	# pill shapes never produce duplicate arc points.
+	var r := minf(radius, minf(rect.size.x, rect.size.y) * 0.5 - 0.01)
 	var pts := PackedVector2Array()
 	var arcs := [
 		[Vector2(rect.position.x + r, rect.position.y + r), PI, PI * 1.5],

@@ -4,9 +4,9 @@ A Timberman-style 2D reaction game built with **Godot 4.4** — no art assets, e
 
 ![Godot 4.4](https://img.shields.io/badge/Godot-4.4-478cbf) ![Platform](https://img.shields.io/badge/platform-desktop%20%7C%20Android%20%7C%20iOS-lightgrey)
 
-| Gameplay | Game over | Mobile (20:9) |
-| --- | --- | --- |
-| ![Gameplay](screenshots/gameplay.png) | ![Game over](screenshots/game-over.png) | ![Mobile](screenshots/mobile.png) |
+| Menu | Gameplay | Game over | Mobile (20:9) |
+| --- | --- | --- | --- |
+| ![Menu](screenshots/menu.png) | ![Gameplay](screenshots/gameplay.png) | ![Game over](screenshots/game-over.png) | ![Mobile](screenshots/mobile.png) |
 
 ## Gameplay
 

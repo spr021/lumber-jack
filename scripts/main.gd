@@ -36,9 +36,16 @@ const GRASS := Color("8ee000")
 const GRASS_LIGHT := Color("a9f043")
 const TRUNK := Color("b98a5e")
 const TRUNK_D := Color("96683f")
+const TRUNK_L := Color("cba571")
+const BAND := 16.0
+const CANOPY_D := Color("7cb342")
+const CANOPY := Color("9ccc65")
+const CANOPY_L := Color("aed581")
+const CANOPY_HL := Color("c5e1a5")
+# Legacy foliage names kept for menu.gd's decorative sprigs.
 const BARK := Color("8a5e3c")
-const LEAF := Color("58cc02")
-const LEAF_L := Color("89e219")
+const LEAF := CANOPY_D
+const LEAF_L := CANOPY
 const SHIRT := Color("ff4b4b")
 const SHIRT_D := Color("d63d3d")
 const PANTS := Color("1cb0f6")
@@ -389,7 +396,7 @@ func _verify_pixels(img: Image) -> void:
 	var jack_x := vp_size.x * 0.5 + (JACK_X if jack_side == Side.RIGHT else -JACK_X)
 	var checks: Array = [
 		["sky", Vector2(30.0, 30.0), SKY],
-		["trunk", Vector2(vp_size.x * 0.5, _ground_y() - 90.0), TRUNK],
+		["trunk", Vector2(vp_size.x * 0.5 - 24.0, _ground_y() - 90.0), TRUNK],
 		["grass", Vector2(vp_size.x * 0.5, vp_size.y - 50.0), GRASS],
 		["shirt", Vector2(jack_x - 10.0, _ground_y() - 75.0), SHIRT],
 	]
@@ -420,7 +427,10 @@ func _ground_y() -> float:
 
 
 func _rounded_points(rect: Rect2, radius: float, seg := 5) -> PackedVector2Array:
-	var r := minf(radius, minf(rect.size.x, rect.size.y) * 0.5)
+	# The 0.01 shave keeps the two arcs on each side from sharing one center
+	# when the radius is exactly half the height: that collapses the first
+	# and last arc points into duplicates and breaks triangulation.
+	var r := minf(radius, minf(rect.size.x, rect.size.y) * 0.5 - 0.01)
 	var pts := PackedVector2Array()
 	var arcs := [
 		[Vector2(rect.position.x + r, rect.position.y + r), PI, PI * 1.5],
@@ -451,13 +461,21 @@ func _draw() -> void:
 	draw_rect(Rect2(0.0, ground + sh.y, vw, _vh() - ground + 40.0), GRASS)
 	draw_rect(Rect2(0.0, ground + sh.y, vw, 14.0), GRASS_LIGHT)
 	_draw_bushes(ground + sh.y, vw)
+	# The trunk is one continuous column; only the branches carry the slide
+	# motion, so the tree reads as a single shape instead of stacked parts.
+	var cx := vw * 0.5 + sh.x
+	draw_rect(Rect2(cx - TRUNK_W * 0.5, -80.0, TRUNK_W, ground + 80.0 + sh.y), TRUNK_D)
 	for i in segments.size():
 		var top := ground - float(i + 1) * SEG_H + slide_offset + sh.y
-		if top > _vh():
+		if top > _vh() + 40.0:
 			continue
-		if top + SEG_H < -40.0:
+		if top + SEG_H < -180.0:
 			break
-		_draw_segment(segments[i], top, vw * 0.5 + sh.x)
+		var dir := -1.0 if segments[i] == Side.LEFT else 1.0
+		_branch_assembly(dir, top + SEG_H * 0.58, cx + dir * (TRUNK_W * 0.5))
+	# Lighter main face over the branch roots, leaving a dark edge band.
+	draw_rect(Rect2(cx - TRUNK_W * 0.5 + BAND, -80.0, TRUNK_W - BAND, ground + 80.0 + sh.y), TRUNK)
+	_draw_trunk_stripes(cx, ground + sh.y)
 	_draw_chips(sh)
 	_draw_flying_logs(sh)
 	_draw_jack(sh)
@@ -478,8 +496,11 @@ func _draw_time_bar() -> void:
 	draw_polygon(_rounded_points(track, BAR_H * 0.5), PackedColorArray([STEEL]))
 	var frac := time_left / TIME_MAX
 	# Skip the fill when it is thinner than one capsule corner radius, so the
-	# rounded polygon never degenerates.
-	if frac > 0.06:
+	# rounded polygon never degenerates. The true threshold is where the fill
+	# width (minus the 2 px inset) meets the capsule seam: below it the two
+	# rounded ends touch and produce duplicate points, which fails
+	# triangulation sporadically depending on where frames land.
+	if frac > (BAR_H + 2.0) / BAR_W:
 		var pulse := 1.0
 		if time_left < 0.5:
 			pulse = 0.65 + 0.35 * absf(sin(elapsed * 9.0))
@@ -518,38 +539,91 @@ func _draw_cloud(center: Vector2, s: float) -> void:
 	draw_rect(Rect2(center + Vector2(-40.0 * s, 8.0 * s), Vector2(82.0 * s, 22.0 * s)), CLOUD)
 
 
-func _draw_segment(branch: int, top: float, cx: float) -> void:
-	# A stacked log: rounded block with a darker bottom edge.
-	var rect := Rect2(cx - TRUNK_W * 0.5, top, TRUNK_W, SEG_H)
-	_draw_block(rect, 22.0, TRUNK, TRUNK_D)
-	# Branch stub as a capsule with flat foliage.
-	var dir := -1.0 if branch == Side.LEFT else 1.0
-	var by := top + SEG_H * 0.58
-	var x0 := cx + dir * (TRUNK_W * 0.5 - 6.0)
-	var x1 := x0 + dir * (BRANCH_LEN - 24.0)
-	draw_line(Vector2(x0, by), Vector2(x1, by), BARK, 13.0)
-	draw_circle(Vector2(x0, by), 6.5, BARK)
-	draw_circle(Vector2(x1, by), 6.5, BARK)
-	draw_circle(Vector2(x1 + dir * 12.0, by - 4.0), 21.0, LEAF)
-	draw_circle(Vector2(x1 + dir * 30.0, by + 6.0), 26.0, LEAF)
-	draw_circle(Vector2(x1 + dir * 16.0, by + 14.0), 15.0, LEAF_L)
-	draw_circle(Vector2(x1 + dir * 22.0, by - 12.0), 12.0, LEAF_L)
+func _draw_trunk_stripes(cx: float, ground: float) -> void:
+	# Rounded vertical highlights, like growth streaks on the bark.
+	draw_polygon(_rounded_points(Rect2(cx + 2.0, -80.0, 13.0, ground + 56.0), 6.5),
+		PackedColorArray([TRUNK_L]))
+	draw_polygon(_rounded_points(Rect2(cx + 27.0, -80.0, 11.0, ground - 210.0), 5.5),
+		PackedColorArray([TRUNK_L]))
+
+
+func _branch_points(edge: float, by: float) -> PackedVector2Array:
+	# Branch silhouette growing out of the trunk edge toward +x: concave
+	# fillets where it meets the trunk and a convex rounded tip.
+	var h := 18.0
+	var rf := 16.0
+	var rb := 24.0
+	var rc := 18.0
+	var tip := edge + BRANCH_LEN
+	var pts := PackedVector2Array()
+	pts.append(Vector2(edge, by - h - rf))
+	var c_top := Vector2(edge + rf, by - h - rf)
+	for i in range(1, 6):
+		var a: float = PI - (PI * 0.5) * i / 5.0
+		pts.append(c_top + Vector2.from_angle(a) * rf)
+	for i in 8:
+		var a: float = -PI * 0.5 + PI * i / 7.0
+		pts.append(Vector2(tip - rc, by) + Vector2.from_angle(a) * rc)
+	var c_bot := Vector2(edge + rb, by + h + rb)
+	for i in 6:
+		var a: float = PI * 0.5 + (PI * 0.5) * i / 5.0
+		pts.append(c_bot + Vector2.from_angle(a) * rb)
+	return pts
+
+
+func _draw_branch_poly(edge: float, by: float, dir: float) -> void:
+	var pts := _branch_points(edge, by)
+	if dir < 0.0:
+		for i in pts.size():
+			pts[i] = Vector2(2.0 * edge - pts[i].x, pts[i].y)
+	draw_polygon(pts, PackedColorArray([TRUNK]))
+
+
+func _span_rect(x1: float, x2: float, y: float, h: float) -> Rect2:
+	return Rect2(minf(x1, x2), y, absf(x2 - x1), h)
+
+
+func _draw_pill(center: Vector2, w: float, h: float, color: Color) -> void:
+	draw_polygon(_rounded_points(Rect2(center - Vector2(w, h) * 0.5, Vector2(w, h)), h * 0.5),
+		PackedColorArray([color]))
+
+
+func _draw_canopy(dir: float, by: float, tip: float) -> void:
+	# Layered blob canopy riding on the branch tip, brightest on top.
+	_draw_pill(Vector2(tip - dir * 10.0, by - 40.0), 150.0, 54.0, CANOPY_D)
+	_draw_pill(Vector2(tip - dir * 24.0, by - 72.0), 114.0, 52.0, CANOPY)
+	_draw_pill(Vector2(tip - dir * 34.0, by - 101.0), 76.0, 46.0, CANOPY_L)
+	_draw_pill(Vector2(tip - dir * 52.0, by - 46.0), 18.0, 9.0, CANOPY_HL)
+	_draw_pill(Vector2(tip - dir * 20.0, by - 64.0), 16.0, 8.0, CANOPY_HL)
+	_draw_pill(Vector2(tip - dir * 40.0, by - 96.0), 14.0, 8.0, CANOPY_HL)
+
+
+func _branch_assembly(dir: float, by: float, edge: float) -> void:
+	_draw_branch_poly(edge, by, dir)
+	# Subtle darker underside along the branch, flowing into the elbow.
+	var shade_to := edge + dir * (BRANCH_LEN - 44.0)
+	draw_polygon(_rounded_points(_span_rect(edge + dir * 12.0, shade_to, by + 5.0, 10.0), 5.0),
+		PackedColorArray([TRUNK_D]))
+	_draw_canopy(dir, by, edge + dir * BRANCH_LEN)
 
 
 func _draw_flying_logs(sh: Vector2) -> void:
 	for piece in flying:
 		draw_set_transform(piece.pos + sh, piece.rot, Vector2.ONE)
 		var rect := Rect2(-TRUNK_W * 0.5, -SEG_H * 0.5, TRUNK_W, SEG_H)
-		_draw_block(rect, 22.0, TRUNK, TRUNK_D)
+		draw_polygon(_rounded_points(rect, 20.0), PackedColorArray([TRUNK]))
+		# Same bark detailing as the standing trunk, clipped to the piece.
+		draw_polygon(_rounded_points(
+			Rect2(rect.position.x + 4.0, rect.position.y + 9.0, BAND - 2.0, SEG_H - 18.0), 7.0),
+			PackedColorArray([TRUNK_D]))
+		draw_polygon(_rounded_points(
+			Rect2(2.0, -SEG_H * 0.5 + 16.0, 12.0, SEG_H * 0.52), 6.0),
+			PackedColorArray([TRUNK_L]))
+		draw_polygon(_rounded_points(
+			Rect2(24.0, -SEG_H * 0.5 + 34.0, 10.0, SEG_H * 0.3), 5.0),
+			PackedColorArray([TRUNK_L]))
 		var dir := -1.0 if piece.branch == Side.LEFT else 1.0
-		var by := -SEG_H * 0.5 + SEG_H * 0.58
-		var x0 := dir * (TRUNK_W * 0.5 - 6.0)
-		var x1 := x0 + dir * (BRANCH_LEN - 24.0)
-		draw_line(Vector2(x0, by), Vector2(x1, by), BARK, 13.0)
-		draw_circle(Vector2(x0, by), 6.5, BARK)
-		draw_circle(Vector2(x1, by), 6.5, BARK)
-		draw_circle(Vector2(x1 + dir * 14.0, by - 4.0), 18.0, LEAF)
-		draw_circle(Vector2(x1 + dir * 28.0, by + 8.0), 14.0, LEAF_L)
+		_branch_assembly(dir, -SEG_H * 0.5 + SEG_H * 0.58, dir * (TRUNK_W * 0.5))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
