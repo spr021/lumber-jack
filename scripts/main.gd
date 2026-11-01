@@ -30,26 +30,34 @@ const BAR_H := 30.0
 enum Side { LEFT, RIGHT }
 enum State { PLAYING, DYING, GAME_OVER }
 
-const SKY := Color("9bd0ee")
-const CLOUD := Color(1.0, 1.0, 1.0, 0.85)
-const GRASS := Color("69a850")
-const GRASS_LIGHT := Color("82c268")
-const TRUNK := Color("8a5a33")
-const BARK := Color("6e4525")
-const LEAF := Color("4e9c44")
-const LEAF_D := Color("3b853a")
-const LEAF_L := Color("68b757")
-const SHIRT := Color("d84b3f")
-const PLAID := Color("b23628")
-const PANTS := Color("2f3a56")
-const BOOT := Color("4a3220")
-const SKIN := Color("f2c094")
-const BEARD := Color("7a4a26")
-const HAT := Color("394a66")
-const HANDLE_WOOD := Color("9a6a3f")
-const STEEL := Color("b9c2cc")
-const STEEL_EDGE := Color("e6ecf2")
-const CHIP := Color("d9b174")
+const SKY := Color("d9f1ff")
+const CLOUD := Color(1.0, 1.0, 1.0, 0.95)
+const GRASS := Color("8ee000")
+const GRASS_LIGHT := Color("a9f043")
+const TRUNK := Color("b98a5e")
+const TRUNK_D := Color("96683f")
+const BARK := Color("8a5e3c")
+const LEAF := Color("58cc02")
+const LEAF_L := Color("89e219")
+const SHIRT := Color("ff4b4b")
+const SHIRT_D := Color("d63d3d")
+const PANTS := Color("1cb0f6")
+const BOOT := Color("8a5e3c")
+const SKIN := Color("ffc29e")
+const HAT := Color("ffc800")
+const HAT_D := Color("e5a400")
+const HANDLE_WOOD := Color("b98a5e")
+const STEEL := Color("e5e5e5")
+const STEEL_EDGE := Color("ffffff")
+const CHIP := Color("ffc800")
+const CHIP2 := Color("ff9600")
+const UI_TEXT := Color("4b4b4b")
+const BAR_GREEN := Color("58cc02")
+const BAR_GREEN_D := Color("58a700")
+const BAR_YELLOW := Color("ffc800")
+const BAR_YELLOW_D := Color("e5a400")
+const BAR_RED := Color("ff4b4b")
+const BAR_RED_D := Color("d63d3d")
 
 var segments: Array = []
 var jack_side: int = Side.LEFT
@@ -68,12 +76,13 @@ var game_over_at := 0.0
 var flying: Array = []
 var chips: Array = []
 
-@onready var score_label: Label = $UI/ScoreLabel
+@onready var score_panel: Panel = $UI/ScorePanel
+@onready var score_label: Label = $UI/ScorePanel/ScoreLabel
 @onready var hint_label: Label = $UI/HintLabel
 @onready var dim: ColorRect = $UI/Dim
-@onready var game_over_label: Label = $UI/GameOverLabel
-@onready var final_label: Label = $UI/FinalLabel
-@onready var restart_label: Label = $UI/RestartLabel
+@onready var game_over_card: Panel = $UI/GameOverCard
+@onready var final_label: Label = $UI/GameOverCard/FinalLabel
+@onready var restart_button: Button = $UI/GameOverCard/RestartButton
 
 
 func _ready() -> void:
@@ -82,6 +91,12 @@ func _ready() -> void:
 	_reset()
 	_apply_safe_area()
 	get_viewport().size_changed.connect(_apply_safe_area)
+	restart_button.pressed.connect(_on_restart_pressed)
+
+
+func _on_restart_pressed() -> void:
+	if state == State.GAME_OVER and elapsed - game_over_at >= 0.35:
+		_reset()
 
 
 func _apply_safe_area() -> void:
@@ -99,9 +114,10 @@ func _apply_safe_area() -> void:
 		0.0, vp_size.y * 0.15)
 	var bottom: float = clampf((win_rect.end.y - clipped.end.y) * vp_size.y / win_rect.size.y,
 		0.0, vp_size.y * 0.15)
-	score_label.offset_top = 70.0 + top
-	hint_label.offset_top = -160.0 - bottom
-	hint_label.offset_bottom = -100.0 - bottom
+	score_panel.offset_top = 52.0 + top
+	score_panel.offset_bottom = 128.0 + top
+	hint_label.offset_top = -150.0 - bottom
+	hint_label.offset_bottom = -96.0 - bottom
 
 
 func _reset() -> void:
@@ -126,9 +142,7 @@ func _reset() -> void:
 	score_label.text = "0"
 	hint_label.visible = true
 	dim.visible = false
-	game_over_label.visible = false
-	final_label.visible = false
-	restart_label.visible = false
+	game_over_card.visible = false
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -203,9 +217,7 @@ func _show_game_over() -> void:
 	state = State.GAME_OVER
 	game_over_at = elapsed
 	dim.visible = true
-	game_over_label.visible = true
-	final_label.visible = true
-	restart_label.visible = true
+	game_over_card.visible = true
 	final_label.text = "SCORE %d\nBEST %d" % [score, best]
 
 
@@ -400,6 +412,29 @@ func _ground_y() -> float:
 	return _vh() - GROUND_MARGIN
 
 
+func _rounded_points(rect: Rect2, radius: float, seg := 5) -> PackedVector2Array:
+	var r := minf(radius, minf(rect.size.x, rect.size.y) * 0.5)
+	var pts := PackedVector2Array()
+	var arcs := [
+		[Vector2(rect.position.x + r, rect.position.y + r), PI, PI * 1.5],
+		[Vector2(rect.end.x - r, rect.position.y + r), PI * 1.5, TAU],
+		[Vector2(rect.end.x - r, rect.end.y - r), 0.0, PI * 0.5],
+		[Vector2(rect.position.x + r, rect.end.y - r), PI * 0.5, PI],
+	]
+	for arc in arcs:
+		for i in seg + 1:
+			var a: float = arc[1] + (arc[2] - arc[1]) * i / seg
+			pts.append(arc[0] + Vector2.from_angle(a) * r)
+	return pts
+
+
+func _draw_block(rect: Rect2, radius: float, color: Color, edge_color: Color, edge := 7.0) -> void:
+	# Duolingo-style solid block: flat fill sitting on a darker bottom edge.
+	draw_polygon(_rounded_points(Rect2(rect.position + Vector2(0.0, edge), rect.size), radius),
+		PackedColorArray([edge_color]))
+	draw_polygon(_rounded_points(rect, radius), PackedColorArray([color]))
+
+
 func _draw() -> void:
 	var sh := Vector2(randf_range(-shake, shake), randf_range(-shake, shake))
 	var vw := _vw()
@@ -407,7 +442,8 @@ func _draw() -> void:
 	draw_rect(Rect2(0.0, 0.0, vw, ground), SKY)
 	_draw_clouds()
 	draw_rect(Rect2(0.0, ground + sh.y, vw, _vh() - ground + 40.0), GRASS)
-	draw_rect(Rect2(0.0, ground + sh.y, vw, 16.0), GRASS_LIGHT)
+	draw_rect(Rect2(0.0, ground + sh.y, vw, 14.0), GRASS_LIGHT)
+	_draw_bushes(ground + sh.y, vw)
 	for i in segments.size():
 		var top := ground - float(i + 1) * SEG_H + slide_offset + sh.y
 		if top > _vh():
@@ -421,24 +457,42 @@ func _draw() -> void:
 	_draw_time_bar()
 
 
+func _draw_bushes(ground: float, vw: float) -> void:
+	for k in 5:
+		var x := vw * (0.12 + 0.19 * k)
+		var r := 26.0 if k % 2 == 0 else 18.0
+		draw_circle(Vector2(x, ground + 4.0), r, GRASS_LIGHT)
+
+
 func _draw_time_bar() -> void:
 	var x := (_vw() - BAR_W) * 0.5
-	var y := 238.0
-	draw_rect(Rect2(x - 4.0, y - 4.0, BAR_W + 8.0, BAR_H + 8.0), Color(0.16, 0.1, 0.06, 0.85))
-	draw_rect(Rect2(x, y, BAR_W, BAR_H), Color(0.1, 0.09, 0.07, 0.92))
+	var y := 240.0
+	var track := Rect2(x, y, BAR_W, BAR_H)
+	draw_polygon(_rounded_points(track, BAR_H * 0.5), PackedColorArray([STEEL]))
 	var frac := time_left / TIME_MAX
-	# The bar pulses when it is nearly empty to warn the player.
-	var pulse := 1.0
-	if time_left < 0.5:
-		pulse = 0.65 + 0.35 * absf(sin(elapsed * 9.0))
-	var fill := Color("6fc45f")
-	if frac <= 0.25:
-		fill = Color("d84b3f")
-	elif frac <= 0.5:
-		fill = Color("e8b83a")
-	if miss_flash > 0.0:
-		fill = Color("ff5a4a")
-	draw_rect(Rect2(x, y, BAR_W * frac, BAR_H), Color(fill, pulse))
+	if frac > 0.01:
+		var pulse := 1.0
+		if time_left < 0.5:
+			pulse = 0.65 + 0.35 * absf(sin(elapsed * 9.0))
+		var fill := BAR_GREEN
+		var edge := BAR_GREEN_D
+		if frac <= 0.25:
+			fill = BAR_RED
+			edge = BAR_RED_D
+		elif frac <= 0.5:
+			fill = BAR_YELLOW
+			edge = BAR_YELLOW_D
+		if miss_flash > 0.0:
+			fill = BAR_RED
+			edge = BAR_RED_D
+		var fill_rect := Rect2(track.position, Vector2(track.size.x * frac, track.size.y))
+		# Duolingo progress bar: green fill riding on a darker bottom edge.
+		draw_polygon(_rounded_points(Rect2(fill_rect.position + Vector2(0.0, 5.0),
+			Vector2(fill_rect.size.x - 2.0, fill_rect.size.y)), BAR_H * 0.5),
+			PackedColorArray([Color(edge, pulse)]))
+		draw_polygon(_rounded_points(Rect2(fill_rect.position,
+			Vector2(fill_rect.size.x - 2.0, fill_rect.size.y - 4.0)), BAR_H * 0.5),
+			PackedColorArray([Color(fill, pulse)]))
 
 
 func _draw_clouds() -> void:
@@ -456,40 +510,48 @@ func _draw_cloud(center: Vector2, s: float) -> void:
 
 
 func _draw_segment(branch: int, top: float, cx: float) -> void:
-	draw_rect(Rect2(cx - TRUNK_W * 0.5, top, TRUNK_W, SEG_H), TRUNK)
-	draw_rect(Rect2(cx - TRUNK_W * 0.5, top, 9.0, SEG_H), BARK)
-	draw_rect(Rect2(cx + TRUNK_W * 0.5 - 9.0, top, 9.0, SEG_H), BARK)
-	draw_rect(Rect2(cx - TRUNK_W * 0.5, top, TRUNK_W, 7.0), BARK)
+	# A stacked log: rounded block with a darker bottom edge.
+	var rect := Rect2(cx - TRUNK_W * 0.5, top, TRUNK_W, SEG_H)
+	_draw_block(rect, 22.0, TRUNK, TRUNK_D)
+	# Branch stub as a capsule with flat foliage.
 	var dir := -1.0 if branch == Side.LEFT else 1.0
 	var by := top + SEG_H * 0.58
-	var x0 := cx + dir * (TRUNK_W * 0.5 - 4.0)
-	var x1 := x0 + dir * BRANCH_LEN
-	draw_rect(Rect2(Vector2(minf(x0, x1), by - 8.0), Vector2(absf(x1 - x0), 16.0)), BARK)
-	draw_circle(Vector2(x1 - dir * 34.0, by - 22.0), 27.0, LEAF_D)
-	draw_circle(Vector2(x1, by + 4.0), 34.0, LEAF)
-	draw_circle(Vector2(x1 - dir * 30.0, by + 18.0), 24.0, LEAF_L)
+	var x0 := cx + dir * (TRUNK_W * 0.5 - 6.0)
+	var x1 := x0 + dir * (BRANCH_LEN - 24.0)
+	draw_line(Vector2(x0, by), Vector2(x1, by), BARK, 13.0)
+	draw_circle(Vector2(x0, by), 6.5, BARK)
+	draw_circle(Vector2(x1, by), 6.5, BARK)
+	draw_circle(Vector2(x1 + dir * 12.0, by - 4.0), 21.0, LEAF)
+	draw_circle(Vector2(x1 + dir * 30.0, by + 6.0), 26.0, LEAF)
+	draw_circle(Vector2(x1 + dir * 16.0, by + 14.0), 15.0, LEAF_L)
+	draw_circle(Vector2(x1 + dir * 22.0, by - 12.0), 12.0, LEAF_L)
 
 
 func _draw_flying_logs(sh: Vector2) -> void:
 	for piece in flying:
 		draw_set_transform(piece.pos + sh, piece.rot, Vector2.ONE)
-		draw_rect(Rect2(-TRUNK_W * 0.5, -SEG_H * 0.5, TRUNK_W, SEG_H), TRUNK)
-		draw_rect(Rect2(-TRUNK_W * 0.5, -SEG_H * 0.5, 9.0, SEG_H), BARK)
-		draw_rect(Rect2(TRUNK_W * 0.5 - 9.0, -SEG_H * 0.5, 9.0, SEG_H), BARK)
+		var rect := Rect2(-TRUNK_W * 0.5, -SEG_H * 0.5, TRUNK_W, SEG_H)
+		_draw_block(rect, 22.0, TRUNK, TRUNK_D)
 		var dir := -1.0 if piece.branch == Side.LEFT else 1.0
 		var by := -SEG_H * 0.5 + SEG_H * 0.58
-		var x0 := dir * (TRUNK_W * 0.5 - 4.0)
-		var x1 := x0 + dir * BRANCH_LEN
-		draw_rect(Rect2(Vector2(minf(x0, x1), by - 8.0), Vector2(absf(x1 - x0), 16.0)), BARK)
-		draw_circle(Vector2(x1, by + 4.0), 30.0, LEAF)
-		draw_circle(Vector2(x1 - dir * 26.0, by + 16.0), 22.0, LEAF_L)
+		var x0 := dir * (TRUNK_W * 0.5 - 6.0)
+		var x1 := x0 + dir * (BRANCH_LEN - 24.0)
+		draw_line(Vector2(x0, by), Vector2(x1, by), BARK, 13.0)
+		draw_circle(Vector2(x0, by), 6.5, BARK)
+		draw_circle(Vector2(x1, by), 6.5, BARK)
+		draw_circle(Vector2(x1 + dir * 14.0, by - 4.0), 18.0, LEAF)
+		draw_circle(Vector2(x1 + dir * 28.0, by + 8.0), 14.0, LEAF_L)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 func _draw_chips(sh: Vector2) -> void:
-	for chip in chips:
+	for i in chips.size():
+		var chip: Dictionary = chips[i]
+		var color := CHIP if i % 2 == 0 else CHIP2
 		draw_set_transform(chip.pos + sh, chip.rot, Vector2.ONE)
-		draw_rect(Rect2(-chip.size * 0.5, -chip.size * 0.5, chip.size, chip.size), CHIP)
+		var rect := Rect2(-chip.size * 0.5, -chip.size * 0.5, chip.size, chip.size)
+		draw_polygon(_rounded_points(rect, chip.size * 0.35, 3),
+			PackedColorArray([color]))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
@@ -500,32 +562,41 @@ func _draw_jack(sh: Vector2) -> void:
 	)
 	var mirror := Vector2(1.0, 1.0) if jack_side == Side.LEFT else Vector2(-1.0, 1.0)
 	draw_set_transform(base + sh, fall_rot, mirror)
-	# Local space from here on: origin at the feet, facing +x toward the trunk.
-	draw_rect(Rect2(-16.0, -62.0, 12.0, 50.0), PANTS)
-	draw_rect(Rect2(4.0, -62.0, 12.0, 50.0), PANTS)
-	draw_rect(Rect2(-20.0, -14.0, 16.0, 14.0), BOOT)
-	draw_rect(Rect2(2.0, -14.0, 20.0, 14.0), BOOT)
-	draw_rect(Rect2(-20.0, -108.0, 40.0, 50.0), SHIRT)
-	draw_rect(Rect2(-20.0, -108.0, 40.0, 6.0), PLAID)
-	draw_rect(Rect2(-20.0, -90.0, 40.0, 6.0), PLAID)
-	draw_rect(Rect2(-4.0, -108.0, 6.0, 50.0), PLAID)
-	draw_circle(Vector2(2.0, -124.0), 17.0, SKIN)
-	draw_rect(Rect2(-14.0, -122.0, 14.0, 16.0), BEARD)
-	draw_rect(Rect2(-14.0, -142.0, 34.0, 10.0), HAT)
+	# Local space: origin at the feet, facing +x toward the trunk.
+	# Legs and rounded boots.
+	draw_block_local(Rect2(-17.0, -54.0, 14.0, 42.0), 7.0, PANTS)
+	draw_block_local(Rect2(3.0, -54.0, 14.0, 42.0), 7.0, PANTS)
+	draw_block_local(Rect2(-21.0, -15.0, 19.0, 15.0), 7.0, BOOT)
+	draw_block_local(Rect2(1.0, -15.0, 21.0, 15.0), 7.0, BOOT)
+	# Torso: flat coral block on a darker edge.
+	_draw_block(Rect2(-22.0, -106.0, 44.0, 58.0), 16.0, SHIRT, SHIRT_D)
+	# Head, hard hat, and a friendly face.
+	draw_circle(Vector2(4.0, -121.0), 19.0, SKIN)
+	draw_block_local(Rect2(-14.0, -148.0, 38.0, 17.0), 8.0, HAT)
+	draw_block_local(Rect2(-19.0, -134.0, 48.0, 9.0), 4.5, HAT_D)
+	draw_circle(Vector2(9.0, -122.0), 2.5, UI_TEXT)
+	draw_circle(Vector2(17.0, -122.0), 2.5, UI_TEXT)
+	draw_arc(Vector2(12.0, -114.0), 5.0, PI * 0.18, PI * 0.82, 8, UI_TEXT, 2.0)
 	# Arm and axe recoil back for a moment after each chop.
 	var ang := -1.3 * swing_t
-	var shoulder := Vector2(6.0, -100.0)
-	var hand := shoulder + (Vector2(30.0, 2.0) - shoulder).rotated(ang) + Vector2(24.0, 0.0).rotated(ang)
-	draw_line(shoulder, hand, SKIN, 9.0)
-	var tip := hand + Vector2(26.0, 8.0).rotated(ang)
-	draw_line(hand, tip, HANDLE_WOOD, 7.0)
+	var shoulder := Vector2(8.0, -92.0)
+	var hand := shoulder + Vector2(31.0, 12.0).rotated(ang)
+	draw_line(shoulder, hand, SKIN, 12.0)
+	draw_circle(shoulder, 9.0, SHIRT)
+	draw_circle(hand, 7.0, SKIN)
+	var tip := hand + Vector2(27.0, 6.0).rotated(ang)
+	draw_line(hand, tip, HANDLE_WOOD, 9.0)
 	var dir2 := (tip - hand).normalized()
 	var perp := Vector2(-dir2.y, dir2.x)
 	var blade := PackedVector2Array([
-		tip + dir2 * 4.0 + perp * 18.0,
-		tip + dir2 * 18.0 + perp * 16.0,
-		tip + dir2 * 18.0 - perp * 6.0,
-		tip + dir2 * 4.0 - perp * 4.0,
+		tip + dir2 * 3.0 + perp * 17.0,
+		tip + dir2 * 17.0 + perp * 14.0,
+		tip + dir2 * 17.0 - perp * 5.0,
+		tip + dir2 * 3.0 - perp * 3.0,
 	])
 	draw_polygon(blade, PackedColorArray([STEEL, STEEL, STEEL_EDGE, STEEL_EDGE]))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+func draw_block_local(rect: Rect2, radius: float, color: Color) -> void:
+	draw_polygon(_rounded_points(rect, radius), PackedColorArray([color]))
