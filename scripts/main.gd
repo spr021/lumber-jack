@@ -313,6 +313,7 @@ func _setup_debug_harness() -> void:
 		return
 	var prefix := "/tmp/lj_shot"
 	var seq := ""
+	var wait := 1.2
 	for arg in args:
 		if arg.begins_with("seed="):
 			seed(arg.substr(5).to_int())
@@ -320,10 +321,12 @@ func _setup_debug_harness() -> void:
 			seq = arg.substr(4)
 		elif arg.begins_with("out="):
 			prefix = arg.substr(4)
-	_run_harness_sequence.call_deferred(prefix, seq)
+		elif arg.begins_with("wait="):
+			wait = arg.substr(5).to_float()
+	_run_harness_sequence.call_deferred(prefix, seq, wait)
 
 
-func _run_harness_sequence(prefix: String, seq: String) -> void:
+func _run_harness_sequence(prefix: String, seq: String, wait: float) -> void:
 	await get_tree().create_timer(0.5).timeout
 	await _shot(prefix + "_start.png")
 	if seq == "auto":
@@ -337,7 +340,7 @@ func _run_harness_sequence(prefix: String, seq: String) -> void:
 			chop(Side.LEFT if seq[i] == "L" else Side.RIGHT)
 			await get_tree().create_timer(0.15).timeout
 			await _shot("%s_%02d.png" % [prefix, i + 1])
-	await get_tree().create_timer(1.2).timeout
+	await get_tree().create_timer(wait).timeout
 	await _shot(prefix + "_end.png")
 	if state == State.GAME_OVER:
 		# Exercise the real restart path: inject an Enter press.
