@@ -36,6 +36,18 @@ const CHOP_COOLDOWN := 0.1
 # Resume countdown: the game stays frozen for this long after unpausing while
 # 3-2-1 pop onto the screen, one number per second.
 const COUNTDOWN_TIME := 3.0
+# Sound + haptics. Chops are the user's two Firefly recordings, silence cut
+# (rebuild via tools/make_sfx.py --trim ...); they play in weighted-random
+# order (leans toward switching, ~25% repeats). The lose jingle is an
+# original game-over tune, silence cut. One player per stream, polyphonic so
+# rapid chops overlap instead of cutting each other off. Haptics fire on
+# every chop; only the correct chop and the game-over cue carry sound.
+const SFX := {
+	"chop_1": {"path": "res://audio/chop_1.wav", "db": -6.0},
+	"chop_2": {"path": "res://audio/chop_2.wav", "db": -6.0},
+	"game_over": {"path": "res://audio/game_over.wav", "db": -3.0},
+}
+const CHOP_SFX: Array[String] = ["chop_1", "chop_2"]
 # Combo: consecutive correct chops. Every correct chop scores its multiplier
 # tier (x2 from COMBO_TIER_2, x3 from _3, x4 from _4); a wrong chop resets it.
 const COMBO_TIER_2 := 5
@@ -104,7 +116,9 @@ var chips: Array = []
 var pops: Array = []
 var combo := 0
 var last_chop_at := -10.0
+var last_chop_sfx := ""
 var countdown_t := 0.0
+var sfx_players: Dictionary = {}
 
 @onready var score_panel: Panel = $UI/ScorePanel
 @onready var score_label: Label = $UI/ScorePanel/ScoreLabel
@@ -124,6 +138,7 @@ var countdown_t := 0.0
 func _ready() -> void:
 	best = _load_best()
 	_setup_debug_harness()
+	_setup_sfx()
 	_reset()
 	_apply_safe_area()
 	get_viewport().size_changed.connect(_apply_safe_area)
@@ -318,6 +333,7 @@ func chop(side: int) -> void:
 		shake = 11.0
 		time_left = maxf(time_left - TIME_PENALTY, 0.0)
 		combo = 0
+		_buzz(90, 0.8)
 	else:
 		var prev_mult := _combo_multiplier(combo)
 		combo += 1
@@ -326,6 +342,8 @@ func chop(side: int) -> void:
 		score_label.text = str(score)
 		time_left = minf(time_left + TIME_REWARD, TIME_MAX)
 		shake = 7.0
+		_play_chop()
+		_buzz(35, 0.5)
 		if mult > prev_mult:
 			_spawn_pop("x%d!" % mult)
 
@@ -345,6 +363,8 @@ func _die() -> void:
 	pause_button.visible = false
 	death_timer = 0.0
 	shake = 12.0
+	_play_sfx("game_over")
+	_buzz(280, 1.0)
 	if score > best:
 		best = score
 		_save_best(best)
@@ -493,6 +513,57 @@ func _save_best(value: int) -> void:
 	var config := ConfigFile.new()
 	config.set_value("game", "best", value)
 	config.save(SAVE_PATH)
+
+
+# --------------------------------------------------------- sound + haptics ---
+
+func _setup_sfx() -> void:
+	# Headless runs (CI, the rules test) have no audio output and the Dummy
+	# driver keeps playback refs alive past exit, so skip setup entirely.
+	if DisplayServer.get_name() == "headless":
+		return
+	for sfx_name in SFX:
+		var stream: AudioStream = load(SFX[sfx_name].path)
+		if stream == null:
+			continue
+		var player := AudioStreamPlayer.new()
+		player.stream = stream
+		player.volume_db = SFX[sfx_name].db
+		player.max_polyphony = 4
+		add_child(player)
+		sfx_players[sfx_name] = player
+
+
+func _play_sfx(sfx_name: String, pitch := 1.0) -> void:
+	var player: AudioStreamPlayer = sfx_players.get(sfx_name)
+	if player == null:
+		return
+	player.pitch_scale = pitch
+	player.play()
+
+
+func _play_chop() -> void:
+	# Random pick that leans toward switching: it feels unordered instead of
+	# a strict 1-2-1-2 alternation, while the 25% repeats (masked by the
+	# detune) keep it from ever sounding stuck on one sample. A small random
+	# detune, plus a slight creep with the combo, keeps streaks sounding
+	# alive.
+	var sfx_name := last_chop_sfx
+	if sfx_name == "" or randf() < 0.75:
+		var pool := CHOP_SFX.filter(func(s): return s != last_chop_sfx)
+		if pool.is_empty():
+			pool = CHOP_SFX
+		sfx_name = pool[randi() % pool.size()]
+	last_chop_sfx = sfx_name
+	var pitch := 1.0 + minf(combo, 24.0) * 0.008 + randf_range(-0.03, 0.03)
+	_play_sfx(sfx_name, pitch)
+
+
+func _buzz(ms: int, amplitude := 0.5) -> void:
+	# Handheld only; a no-op on desktop/headless. Android honors the duration
+	# and amplitude, iOS plays its fixed system vibration.
+	if OS.has_feature("android") or OS.has_feature("ios") or OS.has_feature("web"):
+		Input.vibrate_handheld(ms, amplitude)
 
 
 # ---------------------------------------------------------- debug harness ---
