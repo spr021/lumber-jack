@@ -2,7 +2,9 @@
 
 A Timberman-style 2D reaction game built with **Godot 4.4** — no art assets, everything is drawn in code.
 
-![Godot 4.4](https://img.shields.io/badge/Godot-4.4-478cbf) ![Platform](https://img.shields.io/badge/platform-desktop%20%7C%20Android%20%7C%20iOS-lightgrey)
+![Godot 4.4](https://img.shields.io/badge/Godot-4.4-478cbf) ![Platform](https://img.shields.io/badge/platform-desktop%20%7C%20Android%20%7C%20iOS%20%7C%20Web-lightgrey)
+
+**▶ Play in your browser:** [spr021.github.io/lumber-jack](https://spr021.github.io/lumber-jack/) — compete on the global leaderboard, no install needed.
 
 | Menu | Gameplay | Game over | Mobile (20:9) |
 | --- | --- | --- | --- |
