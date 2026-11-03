@@ -1,16 +1,20 @@
 extends Node2D
 ## Lumberjack — Timberman-style reaction game.
 ##
-## The tree is an endless stack of segments and every segment grows one branch,
-## either left or right. A time bar constantly drains; each correct chop (from
-## the side without a branch) refills it a little, and the drain speeds up with
-## the score. When the bar runs dry the lumberjack drops — the clock is the
+## The tree is an endless stack of segments; each grows one branch — left or
+## right — and rarely (~1 in 10, random) none at all, which is safe from both
+## sides. A time bar constantly drains; each correct chop (from the side
+## without a branch) refills it a little, and the drain speeds up with the
+## score. When the bar runs dry the lumberjack drops — the clock is the
 ## only killer, chopping into a branch simply earns nothing.
 
 const SEG_H := 150.0
 const SEG_COUNT := 12
 const TRUNK_W := 130.0
 const BRANCH_LEN := 125.0
+# Bare segments grow no branch on either side, so a chop from any side scores.
+# Rolled randomly per segment at ~1 in 10 on average, but never two in a row.
+const NO_BRANCH_CHANCE := 0.1
 const GROUND_MARGIN := 240.0
 const JACK_X := 172.0
 const SLIDE_TIME := 0.09
@@ -37,7 +41,7 @@ const COMBO_TIER_4 := 20
 const BAR_W := 460.0
 const BAR_H := 30.0
 
-enum Side { LEFT, RIGHT }
+enum Side { LEFT, RIGHT, NONE }
 enum State { PLAYING, DYING, GAME_OVER }
 
 const SKY := Color("d9f1ff")
@@ -307,6 +311,10 @@ func _process(delta: float) -> void:
 
 
 func _rand_side() -> int:
+	# Rare bare segment: ~1 in 10 rolls, never two in a row so the trunk never
+	# reads as broken.
+	if randf() < NO_BRANCH_CHANCE and segments.back() != Side.NONE:
+		return Side.NONE
 	return Side.LEFT if randi() % 2 == 0 else Side.RIGHT
 
 
@@ -542,11 +550,14 @@ func _draw() -> void:
 			continue
 		if top + SEG_H < -180.0:
 			break
+		if segments[i] == Side.NONE:
+			continue
 		var dir := -1.0 if segments[i] == Side.LEFT else 1.0
 		_branch_assembly(dir, top + SEG_H * 0.58, cx + dir * (TRUNK_W * 0.5))
 	# Lighter main face over the branch roots, leaving a dark edge band.
 	draw_rect(Rect2(cx - TRUNK_W * 0.5 + BAND, -80.0, TRUNK_W - BAND, ground + 80.0 + sh.y), TRUNK)
 	_draw_trunk_stripes(cx, ground + sh.y)
+	_draw_bare_marks(cx, ground, sh)
 	_draw_chips(sh)
 	_draw_flying_logs(sh)
 	_draw_jack(sh)
@@ -660,6 +671,34 @@ func _draw_trunk_stripes(cx: float, ground: float) -> void:
 		PackedColorArray([TRUNK_L]))
 
 
+func _draw_bare_marks(cx: float, ground: float, sh: Vector2) -> void:
+	# Bare segments grow no branch, which on its own just reads as "missing
+	# art" — golden sparkles mark them as a deliberate free-chop bonus beat.
+	# Drawn after the trunk face so the bark does not cover them.
+	for i in segments.size():
+		if segments[i] != Side.NONE:
+			continue
+		var top := ground - float(i + 1) * SEG_H + slide_offset + sh.y
+		if top > _vh() + 40.0:
+			continue
+		if top + SEG_H < -180.0:
+			break
+		var pulse := 0.85 + 0.15 * sin(elapsed * 5.0 + float(i) * 1.7)
+		var mid := Vector2(cx - 14.0, top + SEG_H * 0.5)
+		_draw_sparkle(mid, 23.0 * pulse, HAT)
+		_draw_sparkle(mid + Vector2(44.0, -28.0), 11.0 * pulse, Color.WHITE)
+
+
+func _draw_sparkle(center: Vector2, r: float, color: Color) -> void:
+	# Four-point star: tips on the axes, pinched diagonals between them.
+	var pts := PackedVector2Array()
+	for k in 4:
+		var a := TAU * float(k) / 4.0 - PI * 0.5
+		pts.append(center + Vector2.from_angle(a) * r)
+		pts.append(center + Vector2.from_angle(a + PI * 0.25) * r * 0.32)
+	draw_polygon(pts, PackedColorArray([color]))
+
+
 func _branch_points(edge: float, by: float) -> PackedVector2Array:
 	# Branch silhouette growing out of the trunk edge toward +x: concave
 	# fillets where it meets the trunk and a convex rounded tip.
@@ -735,8 +774,9 @@ func _draw_flying_logs(sh: Vector2) -> void:
 		draw_polygon(_rounded_points(
 			Rect2(24.0, -SEG_H * 0.5 + 34.0, 10.0, SEG_H * 0.3), 5.0),
 			PackedColorArray([TRUNK_L]))
-		var dir := -1.0 if piece.branch == Side.LEFT else 1.0
-		_branch_assembly(dir, -SEG_H * 0.5 + SEG_H * 0.58, dir * (TRUNK_W * 0.5))
+		if piece.branch != Side.NONE:
+			var dir := -1.0 if piece.branch == Side.LEFT else 1.0
+			_branch_assembly(dir, -SEG_H * 0.5 + SEG_H * 0.58, dir * (TRUNK_W * 0.5))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 

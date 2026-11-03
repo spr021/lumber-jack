@@ -114,6 +114,39 @@ func _run_checks(game: Node2D) -> void:
 	if game.time_left > game.TIME_MAX + 0.0001:
 		failures.append("time reward exceeded TIME_MAX")
 
+	# A bare segment (no branch on either side) is safe from both sides: a
+	# chop from either side scores and keeps the combo.
+	game._reset()
+	_advance(game)
+	game.segments[1] = game.Side.NONE
+	game.chop(game.Side.LEFT)
+	if game.score != 1 or game.combo != 1:
+		failures.append("chop left on a bare segment must score")
+	_advance(game)
+	game.segments[1] = game.Side.NONE
+	game.chop(game.Side.RIGHT)
+	if game.score != 2 or game.combo != 2:
+		failures.append("chop right on a bare segment must score too")
+
+	# Bare segments are rare: ~1 in 10 rolls on average, and never two in a
+	# row so the trunk never reads as broken. The loop appends every roll like
+	# the real stack does, since the guard reads the previous segment.
+	game.segments = [game.Side.RIGHT]
+	seed(12345)
+	var bare := 0
+	var consecutive := false
+	for i in 20000:
+		var s: int = game._rand_side()
+		if s == game.Side.NONE:
+			bare += 1
+			if game.segments.back() == game.Side.NONE:
+				consecutive = true
+		game.segments.append(s)
+	if bare < 1500 or bare > 2500:
+		failures.append("bare frequency %d/20000 is outside ~1 in 10" % bare)
+	if consecutive:
+		failures.append("two bare segments appeared in a row")
+
 	# A drained bar kills: with almost no time left, death follows within a
 	# few frames of real-time drain.
 	game.time_left = 0.001
