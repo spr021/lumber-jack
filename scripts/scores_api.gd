@@ -5,7 +5,8 @@ extends Node
 ## one name per device, one best score per device. The publishable key is
 ## safe to ship; all writes go through server-side RPCs that validate input.
 
-signal leaderboard_loaded(ok: bool, data: Dictionary)
+signal leaderboard_loaded(ok: bool, data: Dictionary)  # all-time board (settings)
+signal daily_loaded(ok: bool, data: Dictionary)  # today's board (main menu)
 
 const G := preload("res://scripts/main.gd")
 
@@ -39,6 +40,9 @@ func submit(score: int) -> void:
 		# Empty = "you pick": the server assigns/keeps the generated alias.
 		"p_name": "" if player_name == DEFAULT_NAME else player_name,
 		"p_score": score,
+		# Minutes east of UTC: the server stamps the run with this device's
+		# local calendar day, which drives the daily board.
+		"p_offset_minutes": _tz_offset_minutes(),
 	})
 	if res.has("best"):
 		if pending_best:
@@ -87,19 +91,41 @@ func suggest_name() -> String:
 	return str(res["name"]) if res.has("name") else ""
 
 
-## One round trip: top 3 + this device's entry and rank. The server also
-## assigns a generated alias to unseen devices, so adopt it as our name.
+## One round trip: all-time top 3 + this device's entry and rank. The server
+## also assigns a generated alias to unseen devices, so adopt it as our name.
 func fetch_leaderboard() -> void:
 	var res: Dictionary = await _rpc("get_leaderboard", {"p_device_id": device_id})
 	if res.has("top"):
-		var me: Variant = res.get("me")
-		var server_name: Variant = me.get("name") if me is Dictionary else null
-		if server_name is String and server_name != "" \
-				and not name_dirty and str(server_name) != player_name:
-			player_name = _sanitize_name(str(server_name))
-			_save_local()
+		_adopt_server_name(res.get("me"))
 	var ok := res.has("top")
 	leaderboard_loaded.emit(ok, res if ok else {})
+
+
+## Same round trip for the daily board, which resets at this device's own
+## local midnight: today's top 3 + today's score and rank.
+func fetch_daily_leaderboard() -> void:
+	var res: Dictionary = await _rpc("get_daily_leaderboard", {
+		"p_device_id": device_id,
+		"p_offset_minutes": _tz_offset_minutes(),
+	})
+	if res.has("top"):
+		_adopt_server_name(res.get("me"))
+	var ok := res.has("top")
+	daily_loaded.emit(ok, res if ok else {})
+
+
+func _adopt_server_name(me: Variant) -> void:
+	var server_name: Variant = me.get("name") if me is Dictionary else null
+	if server_name is String and server_name != "" \
+			and not name_dirty and str(server_name) != player_name:
+		player_name = _sanitize_name(str(server_name))
+		_save_local()
+
+
+## Minutes east of UTC (Godot reports bias in minutes, verified on this
+## machine). The server derives the client-local calendar day from it.
+func _tz_offset_minutes() -> int:
+	return int(Time.get_time_zone_from_system().get("bias", 0))
 
 
 func _rpc(func_name: String, payload: Dictionary) -> Dictionary:

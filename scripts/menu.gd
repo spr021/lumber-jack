@@ -11,18 +11,35 @@ const G := preload("res://scripts/main.gd")
 const S := preload("res://scripts/scores_api.gd")
 
 # --- online leaderboard (all UI built in code, see bottom section) ---
+# The menu shows the DAILY board; the all-time board lives behind settings.
 var scores_api: Node = null
 var board_top: Array = []
 var board_me: Dictionary = {}
 var board_group: Control
-var top_name_labels: Array[Label] = []
-var top_score_labels: Array[Label] = []
+var top_name_labels: Array = []
+var top_score_labels: Array = []
 var me_rank_label: Label
 var me_name_label: Label
 var me_score_label: Label
+var countdown_label: Label
+var countdown_next_ms := 0
+var countdown_secs := -1  # -1 until the first tick, so the boot tick can't refetch
 var name_dialog: Control
 var name_edit: LineEdit
 var name_hint: Label
+
+# --- all-time board dialog (opened from the trophy button under the gear) ---
+var alltime_dialog: Control
+var alltime_open := false
+var ranks_button: Button
+var alltime_top: Array = []
+var alltime_me: Dictionary = {}
+var alltime_names: Array = []
+var alltime_scores: Array = []
+var alltime_rank_label: Label
+var alltime_name_label: Label
+var alltime_score_label: Label
+var alltime_sub_label: Label
 
 # --- settings (sound/haptics toggles, persisted with the best score) ---
 var sound_on := true
@@ -48,6 +65,7 @@ func _ready() -> void:
 	_build_tree()
 	_setup_leaderboard()
 	_build_settings()
+	_build_ranks_button()
 
 
 func _build_tree() -> void:
@@ -61,6 +79,39 @@ func _build_tree() -> void:
 func _process(delta: float) -> void:
 	elapsed += delta
 	queue_redraw()
+	# Tick the reset countdown once a second; keep the pill text honest while
+	# the menu sits open past midnight.
+	if countdown_label and Time.get_ticks_msec() >= countdown_next_ms:
+		countdown_next_ms = Time.get_ticks_msec() + 1000
+		_tick_countdown()
+
+
+func _tick_countdown() -> void:
+	var secs := _seconds_until_midnight()
+	if countdown_secs >= 0 and secs > countdown_secs and scores_api:
+		scores_api.fetch_daily_leaderboard()  # the day rolled over on screen
+	countdown_secs = secs
+	countdown_label.text = _countdown_text(secs)
+
+
+func _countdown_text(secs: int) -> String:
+	if secs <= 0:
+		return "DAILY · RESETS NOW"
+	if secs < 60:
+		return "DAILY · RESETS SOON"
+	var h := secs / 3600
+	var m := (secs % 3600) / 60
+	if h > 0:
+		return "DAILY · RESETS IN %dH %02dM" % [h, m]
+	return "DAILY · RESETS IN %dM" % m
+
+
+func _seconds_until_midnight() -> int:
+	# Same clock the server uses for the daily key (bias = minutes east of
+	# UTC): the board resets when this hits zero, at the local midnight.
+	var bias_min := float(Time.get_time_zone_from_system().get("bias", 0))
+	var local_now := Time.get_unix_time_from_system() + bias_min * 60.0
+	return int(ceil((floor(local_now / 86400.0) + 1.0) * 86400.0 - local_now))
 
 
 func _on_play_pressed() -> void:
@@ -162,6 +213,72 @@ func _build_settings_dialog() -> void:
 		settings_dialog.visible = false))
 
 
+func _open_alltime() -> void:
+	alltime_open = true
+	alltime_top = []
+	alltime_me = {}
+	alltime_sub_label.text = ""
+	_refresh_alltime()
+	alltime_dialog.visible = true
+	if scores_api:
+		scores_api.fetch_leaderboard()
+
+
+func _build_alltime_dialog() -> void:
+	alltime_dialog = Control.new()
+	alltime_dialog.set_anchors_preset(Control.PRESET_FULL_RECT)
+	alltime_dialog.visible = false
+	$UI.add_child(alltime_dialog)
+
+	var dim := ColorRect.new()
+	dim.color = Color(0.0, 0.0, 0.0, 0.45)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	alltime_dialog.add_child(dim)
+
+	var card := Panel.new()
+	card.anchor_left = 0.5
+	card.anchor_right = 0.5
+	card.anchor_top = 0.5
+	card.anchor_bottom = 0.5
+	card.offset_left = -250.0
+	card.offset_top = -244.0
+	card.offset_right = 250.0
+	card.offset_bottom = 244.0
+	card.add_theme_stylebox_override("panel", _card_style())
+	alltime_dialog.add_child(card)
+
+	var box := VBoxContainer.new()
+	box.set_anchors_preset(Control.PRESET_FULL_RECT)
+	box.offset_left = 30.0
+	box.offset_top = 24.0
+	box.offset_right = -30.0
+	box.offset_bottom = -24.0
+	box.add_theme_constant_override("separation", 12)
+	card.add_child(box)
+
+	var title := _board_label("ALL-TIME", 28, G.UI_TEXT)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(title)
+
+	alltime_sub_label = _board_label("", 15, G.UI_GREY_D)
+	alltime_sub_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(alltime_sub_label)
+
+	for i in 3:
+		box.add_child(_make_top_pill(i, alltime_names, alltime_scores))
+
+	var you := _make_you_pill(false)
+	alltime_rank_label = you["rank"]
+	alltime_name_label = you["name"]
+	alltime_score_label = you["score"]
+	box.add_child(you["pill"])
+
+	box.add_child(_dialog_button("CLOSE", 18, 46.0, false, func() -> void:
+		alltime_open = false
+		alltime_dialog.visible = false))
+
+
 func _settings_row(text: String, initial: bool, handler: Callable) -> Panel:
 	var row := Panel.new()
 	row.custom_minimum_size = Vector2(0.0, 64.0)
@@ -194,6 +311,28 @@ func _open_settings() -> void:
 	sound_toggle.on = sound_on
 	haptic_toggle.on = haptics_on
 	settings_dialog.visible = true
+
+
+func _build_ranks_button() -> void:
+	# Invisible tappable area like the settings gear: the trophy icon floats
+	# on the sky right under the gear and opens the all-time board.
+	ranks_button = Button.new()
+	ranks_button.focus_mode = Control.FOCUS_NONE
+	ranks_button.anchor_left = 1.0
+	ranks_button.anchor_right = 1.0
+	ranks_button.offset_left = -104.0
+	ranks_button.offset_top = 112.0
+	ranks_button.offset_right = -20.0
+	ranks_button.offset_bottom = 196.0
+	for state in ["normal", "hover", "pressed", "focus"]:
+		ranks_button.add_theme_stylebox_override(state, StyleBoxEmpty.new())
+	ranks_button.pressed.connect(_open_alltime)
+	$UI.add_child(ranks_button)
+
+	var icon := LeaderboardIcon.new()
+	icon.set_anchors_preset(Control.PRESET_FULL_RECT)
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ranks_button.add_child(icon)
 
 
 func _on_sound_toggled(on: bool) -> void:
@@ -233,8 +372,12 @@ func _run_harness() -> void:
 		elif arg.begins_with("settings="):
 			open_settings = arg.substr(9) == "1"
 	await get_tree().create_timer(0.6).timeout
+	# The board fetches over the network; give it a moment so shots are
+	# data-rich instead of placeholders.
+	await _wait_daily_data(4.0)
 	await _shot(prefix + "_menu.png")
-	print("MENU state=menu best=", best, " segs(bottom-up)=", segments)
+	print("MENU state=menu best=", best, " countdown=", _countdown_text(_seconds_until_midnight()),
+		" segs(bottom-up)=", segments)
 	if open_settings:
 		_open_settings()
 		await get_tree().create_timer(0.3).timeout
@@ -248,7 +391,29 @@ func _run_harness() -> void:
 		_on_sound_toggled(true)
 		_on_haptic_toggled(true)
 		settings_dialog.visible = false
+		# Open the all-time board through the real trophy button wiring.
+		ranks_button.pressed.emit()
+		await _wait_alltime_data(4.0)
+		await get_tree().create_timer(0.3).timeout
+		await _shot(prefix + "_ranks.png")
+		print("RANKS sub=", alltime_sub_label.text)
+		alltime_open = false
+		alltime_dialog.visible = false
 	_on_play_pressed()
+
+
+func _wait_daily_data(timeout: float) -> void:
+	var waited := 0.0
+	while waited < timeout and board_top.is_empty():
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+
+
+func _wait_alltime_data(timeout: float) -> void:
+	var waited := 0.0
+	while waited < timeout and alltime_top.is_empty():
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
 
 
 func _shot(path: String) -> void:
@@ -444,22 +609,25 @@ func _rounded_points(rect: Rect2, radius: float, seg := 5) -> PackedVector2Array
 
 
 # ------------------------------------------------------------- leaderboard ---
-# Top-3 card between the title sign and BEST, plus a tappable "YOU" row that
-# opens the rename dialog. The Scores autoload handles device identity and
-# all HTTP; this section is display only.
+# The DAILY board: a reset-countdown badge, three slim white pills for
+# today's top 3 and a green tappable "YOU" row that opens the rename dialog.
+# The Scores autoload handles device identity and all HTTP; this section is
+# display only.
 
 func _setup_leaderboard() -> void:
 	scores_api = get_node_or_null("/root/Scores")
 	_build_board()
 	_build_name_dialog()
+	_build_alltime_dialog()
 	if scores_api:
-		scores_api.leaderboard_loaded.connect(_on_leaderboard_loaded)
+		scores_api.daily_loaded.connect(_on_daily_loaded)
+		scores_api.leaderboard_loaded.connect(_on_alltime_loaded)
 		_refresh_board()
 		scores_api.retry_pending()
-		scores_api.fetch_leaderboard()
+		scores_api.fetch_daily_leaderboard()
 
 
-func _on_leaderboard_loaded(ok: bool, data: Dictionary) -> void:
+func _on_daily_loaded(ok: bool, data: Dictionary) -> void:
 	if not ok:
 		return  # keep whatever is on screen; offline shows placeholders
 	board_top = data.get("top", [])
@@ -468,10 +636,26 @@ func _on_leaderboard_loaded(ok: bool, data: Dictionary) -> void:
 	_refresh_board()
 
 
+func _on_alltime_loaded(ok: bool, data: Dictionary) -> void:
+	if not alltime_open or not ok:
+		return
+	alltime_top = data.get("top", [])
+	var me: Variant = data.get("me")
+	alltime_me = me if me is Dictionary else {}
+	# JSON numbers decode as float, so accept any numeric total here.
+	var total: Variant = data.get("total")
+	if total != null:
+		var n := int(total)
+		alltime_sub_label.text = "NO SCORES YET" if n == 0 \
+			else "TOP %d OF %d LUMBERJACKS" % [mini(alltime_top.size(), 3), n]
+	_refresh_alltime()
+
+
 func _build_board() -> void:
-	# No enclosing card: a floating header, three slim white pills for the
-	# top 3 and a green pill for this device, all hovering over the world.
-	# Bottom sits above the lumberjack so he stays fully visible on the grass.
+	# No enclosing card: a floating countdown badge, three slim white pills
+	# for the top 3 and a green pill for this device, all hovering over the
+	# world. Bottom sits above the lumberjack so he stays fully visible on
+	# the grass.
 	board_group = Control.new()
 	board_group.anchor_left = 0.5
 	board_group.anchor_right = 0.5
@@ -491,13 +675,35 @@ func _build_board() -> void:
 	rows.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	board_group.add_child(rows)
 
+	# The badge is what makes the board read as "daily": clock icon plus a
+	# live countdown to the reset, ticking in _process.
+	var badge := PanelContainer.new()
+	badge.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	badge.add_theme_stylebox_override("panel", _badge_style())
+	rows.add_child(badge)
+
+	var badge_row := HBoxContainer.new()
+	badge_row.add_theme_constant_override("separation", 8)
+	badge_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	badge.add_child(badge_row)
+	badge_row.add_child(ClockIcon.new())
+	countdown_label = _board_label("", 15, G.UI_GREY_D)
+	badge_row.add_child(countdown_label)
+
 	for i in 3:
-		rows.add_child(_top_pill(i))
+		rows.add_child(_make_top_pill(i, top_name_labels, top_score_labels))
 
-	rows.add_child(_you_pill())
+	var you := _make_you_pill(true)
+	me_rank_label = you["rank"]
+	me_name_label = you["name"]
+	me_score_label = you["score"]
+	rows.add_child(you["pill"])
 
 
-func _top_pill(place: int) -> Panel:
+## One medal pill; appends its labels to the given arrays so the daily board
+## and the all-time dialog can each own a set.
+func _make_top_pill(place: int, names: Array, scores: Array) -> Panel:
 	var pill := Panel.new()
 	pill.custom_minimum_size = Vector2(0.0, 64.0)
 	pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -535,23 +741,34 @@ func _top_pill(place: int) -> Panel:
 	score_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	row.add_child(score_label)
 
-	top_name_labels.append(name_label)
-	top_score_labels.append(score_label)
+	names.append(name_label)
+	scores.append(score_label)
 	return pill
 
 
-func _you_pill() -> Button:
-	var pill := Button.new()
-	pill.custom_minimum_size = Vector2(0.0, 64.0)
-	pill.focus_mode = Control.FOCUS_NONE
-	pill.mouse_filter = Control.MOUSE_FILTER_STOP
-	pill.pressed.connect(_open_name_dialog)
-	pill.add_theme_stylebox_override("normal", _you_style())
-	pill.add_theme_stylebox_override("hover", _you_style())
-	pill.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	var pressed := _you_style()
-	pressed.bg_color = G.BAR_GREEN_D
-	pill.add_theme_stylebox_override("pressed", pressed)
+## The green "YOU" row. On the menu it's a tappable button that opens the
+## rename dialog; in the all-time dialog it's a plain panel.
+func _make_you_pill(tappable: bool) -> Dictionary:
+	var pill: Control
+	if tappable:
+		var button := Button.new()
+		button.custom_minimum_size = Vector2(0.0, 64.0)
+		button.focus_mode = Control.FOCUS_NONE
+		button.mouse_filter = Control.MOUSE_FILTER_STOP
+		button.pressed.connect(_open_name_dialog)
+		button.add_theme_stylebox_override("normal", _you_style())
+		button.add_theme_stylebox_override("hover", _you_style())
+		button.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+		var pressed := _you_style()
+		pressed.bg_color = G.BAR_GREEN_D
+		button.add_theme_stylebox_override("pressed", pressed)
+		pill = button
+	else:
+		var panel := Panel.new()
+		panel.custom_minimum_size = Vector2(0.0, 64.0)
+		panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		panel.add_theme_stylebox_override("panel", _you_style())
+		pill = panel
 
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
@@ -574,22 +791,23 @@ func _you_pill() -> Button:
 	circle.add_theme_stylebox_override("panel", circle_style)
 	row.add_child(circle)
 
-	me_rank_label = _board_label("–", 20, G.BAR_GREEN)
-	me_rank_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	circle.add_child(me_rank_label)
-	me_rank_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var rank_label := _board_label("–", 20, G.BAR_GREEN)
+	rank_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	circle.add_child(rank_label)
+	rank_label.set_anchors_preset(Control.PRESET_FULL_RECT)
 
-	me_name_label = _board_label("—", 26, Color.WHITE)
-	me_name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	me_name_label.clip_text = true
-	row.add_child(me_name_label)
+	var name_label := _board_label("—", 26, Color.WHITE)
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_label.clip_text = true
+	row.add_child(name_label)
 
-	row.add_child(_board_label("EDIT", 15, Color(1.0, 1.0, 1.0, 0.75)))
+	if tappable:
+		row.add_child(_board_label("EDIT", 15, Color(1.0, 1.0, 1.0, 0.75)))
 
-	me_score_label = _board_label("", 26, Color.WHITE)
-	me_score_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	row.add_child(me_score_label)
-	return pill
+	var score_label := _board_label("", 26, Color.WHITE)
+	score_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	row.add_child(score_label)
+	return {"pill": pill, "rank": rank_label, "name": name_label, "score": score_label}
 
 
 func _build_name_dialog() -> void:
@@ -700,7 +918,7 @@ func _on_name_save() -> void:
 		"ok":
 			name_dialog.visible = false
 			_refresh_board()
-			scores_api.fetch_leaderboard()
+			scores_api.fetch_daily_leaderboard()
 		"taken":
 			name_hint.text = "NAME TAKEN — TRY ANOTHER"
 			name_hint.visible = true
@@ -718,21 +936,36 @@ func _on_name_reroll() -> void:
 
 
 func _refresh_board() -> void:
-	for i in top_name_labels.size():
-		if i < board_top.size() and board_top[i] is Dictionary:
-			var entry: Dictionary = board_top[i]
-			top_name_labels[i].text = str(entry.get("name", "—"))
-			top_score_labels[i].text = str(int(entry.get("score", 0)))
+	# Daily semantics: "–" until this device's first run TODAY (a best from
+	# yesterday must not leak in).
+	_fill_board(top_name_labels, top_score_labels, board_top, board_me,
+		me_rank_label, me_name_label, me_score_label, "–")
+
+
+func _refresh_alltime() -> void:
+	# All-time: before the first submitted run, the local best is the honest
+	# stand-in for the score column.
+	_fill_board(alltime_names, alltime_scores, alltime_top, alltime_me,
+		alltime_rank_label, alltime_name_label, alltime_score_label, str(best))
+
+
+func _fill_board(names: Array, scores: Array, top: Array, me: Dictionary,
+		rank_label: Label, name_label: Label, score_label: Label,
+		me_fallback: String) -> void:
+	for i in names.size():
+		if i < top.size() and top[i] is Dictionary:
+			var entry: Dictionary = top[i]
+			names[i].text = str(entry.get("name", "—"))
+			scores[i].text = str(int(entry.get("score", 0)))
 		else:
-			top_name_labels[i].text = "—"
-			top_score_labels[i].text = ""
-	var display_name: String = scores_api.player_name if scores_api else S.DEFAULT_NAME
-	me_name_label.text = display_name
-	# score/rank are null until this device's first submitted run
-	var me_rank: Variant = board_me.get("rank")
-	var me_score: Variant = board_me.get("score")
-	me_rank_label.text = str(int(me_rank)) if me_rank != null else "–"
-	me_score_label.text = str(int(me_score)) if me_score != null else str(best)
+			names[i].text = "—"
+			scores[i].text = ""
+	name_label.text = scores_api.player_name if scores_api else S.DEFAULT_NAME
+	# score/rank are null until this device has a run on the board
+	var me_rank: Variant = me.get("rank")
+	var me_score: Variant = me.get("score")
+	rank_label.text = str(int(me_rank)) if me_rank != null else "–"
+	score_label.text = str(int(me_score)) if me_score != null else me_fallback
 
 
 func _board_label(text: String, font_size: int, color: Color) -> Label:
@@ -759,6 +992,20 @@ func _pill_style() -> StyleBoxFlat:
 	style.set_corner_radius_all(32.0)
 	style.set_border_width_all(2)
 	style.border_color = Color("e5e5e5")
+	return style
+
+
+func _badge_style() -> StyleBoxFlat:
+	# Slimmer cousin of the pill style for the countdown badge.
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color.WHITE
+	style.set_corner_radius_all(16.0)
+	style.set_border_width_all(2)
+	style.border_color = Color("e5e5e5")
+	style.content_margin_left = 14.0
+	style.content_margin_right = 16.0
+	style.content_margin_top = 6.0
+	style.content_margin_bottom = 6.0
 	return style
 
 
@@ -800,6 +1047,21 @@ func _edit_style(focused: bool) -> StyleBoxFlat:
 
 # Custom-drawn widgets for the settings UI, matching the procedural art style.
 
+class ClockIcon extends Control:
+	const G := preload("res://scripts/main.gd")
+
+	func _init() -> void:
+		custom_minimum_size = Vector2(22.0, 22.0)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func _draw() -> void:
+		# Tiny wall clock on a green disc: the "resets at midnight" badge icon.
+		var c := size * 0.5
+		draw_circle(c, size.x * 0.5, G.BAR_GREEN)
+		draw_line(c, c + Vector2(0.0, -size.x * 0.26), Color.WHITE, 2.0)
+		draw_line(c, c + Vector2(size.x * 0.22, 0.0), Color.WHITE, 2.0)
+
+
 class ToggleSwitch extends Control:
 	const G := preload("res://scripts/main.gd")
 
@@ -831,6 +1093,119 @@ class ToggleSwitch extends Control:
 				and event.button_index == MOUSE_BUTTON_LEFT:
 			on = not on
 			flipped.emit(on)
+
+
+class LeaderboardIcon extends Control:
+	# Icon for the all-time leaderboard button, drawn in the game's plush
+	# block style: flat fill on a darker bottom edge plus a soft highlight.
+	# Four candidates; "trophy" is the shipped look.
+	const G := preload("res://scripts/main.gd")
+
+	var style := "trophy":
+		set(value):
+			style = value
+			queue_redraw()
+
+	func _init() -> void:
+		custom_minimum_size = Vector2(84.0, 84.0)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func _draw() -> void:
+		var c := size * 0.5
+		var unit := minf(size.x, size.y)
+		match style:
+			"podium":
+				_draw_podium(c, unit)
+			"medal":
+				_draw_medal(c, unit)
+			"crown":
+				_draw_crown(c, unit)
+			_:
+				_draw_trophy(c, unit)
+
+	func _draw_trophy(c: Vector2, unit: float) -> void:
+		for layer in [[Vector2(0.0, unit * 0.05), G.HAT_D], [Vector2.ZERO, G.HAT]]:
+			var off: Vector2 = layer[0]
+			var col: Color = layer[1]
+			# Handles first: they tuck behind the bowl.
+			draw_arc(c + Vector2(-unit * 0.33, -unit * 0.18) + off, unit * 0.11,
+				PI * 0.4, PI * 1.6, 12, col, unit * 0.05)
+			draw_arc(c + Vector2(unit * 0.33, -unit * 0.18) + off, unit * 0.11,
+				-PI * 0.6, PI * 0.6, 12, col, unit * 0.05)
+			# Bowl: rect rim over a round bottom.
+			draw_rect(Rect2(c.x - unit * 0.27 + off.x, c.y - unit * 0.34 + off.y,
+				unit * 0.54, unit * 0.26), col)
+			draw_circle(c + Vector2(0.0, -unit * 0.08) + off, unit * 0.27, col)
+			# Stem and pill base.
+			draw_rect(Rect2(c.x - unit * 0.05 + off.x, c.y + unit * 0.14 + off.y,
+				unit * 0.10, unit * 0.16), col)
+			draw_rect(Rect2(c.x - unit * 0.14 + off.x, c.y + unit * 0.28 + off.y,
+				unit * 0.28, unit * 0.12), col)
+			draw_circle(c + Vector2(-unit * 0.14, unit * 0.34) + off, unit * 0.06, col)
+			draw_circle(c + Vector2(unit * 0.14, unit * 0.34) + off, unit * 0.06, col)
+		draw_circle(c + Vector2(-unit * 0.13, -unit * 0.22), unit * 0.055,
+			Color(G.CANOPY_HL, 0.85))
+
+	func _draw_podium(c: Vector2, unit: float) -> void:
+		# Silver-gold-bronze pillars, bottom aligned, numbers on the front.
+		var pillars := [
+			[unit * -0.26, unit * 0.36, Color("b0bec5"), Color("93a3ab"), "2"],
+			[0.0, unit * 0.52, G.HAT, G.HAT_D, "1"],
+			[unit * 0.26, unit * 0.26, G.CHIP2, Color("cc7a00"), "3"],
+		]
+		var font := ThemeDB.fallback_font
+		var bottom := c.y + unit * 0.34
+		var w := unit * 0.24
+		for p in pillars:
+			var cx: float = c.x + p[0]
+			var top: float = bottom - float(p[1])
+			for layer in [[Vector2(0.0, unit * 0.05), p[3]], [Vector2.ZERO, p[2]]]:
+				var off: Vector2 = layer[0]
+				var col: Color = layer[1]
+				draw_rect(Rect2(cx - w * 0.5 + off.x, top + w * 0.5 + off.y,
+					w, float(p[1]) - w * 0.5), col)
+				draw_circle(Vector2(cx, top + w * 0.5) + off, w * 0.5, col)
+			draw_string(font, Vector2(cx - w * 0.5, bottom - float(p[1]) * 0.5 + unit * 0.06),
+				str(p[4]), HORIZONTAL_ALIGNMENT_CENTER, w, int(unit * 0.17), Color.WHITE)
+
+	func _draw_medal(c: Vector2, unit: float) -> void:
+		for layer in [[Vector2(0.0, unit * 0.04), G.BAR_RED_D], [Vector2.ZERO, G.BAR_RED]]:
+			var off: Vector2 = layer[0]
+			var col: Color = layer[1]
+			for side in [-1.0, 1.0]:
+				draw_set_transform(c + Vector2(side * unit * 0.12, -unit * 0.30) + off,
+					side * 0.3, Vector2.ONE)
+				draw_rect(Rect2(-unit * 0.07, 0.0, unit * 0.14, unit * 0.34), col)
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		for layer in [[Vector2(0.0, unit * 0.05), G.HAT_D], [Vector2.ZERO, G.HAT]]:
+			draw_circle(c + Vector2(0.0, unit * 0.08) + layer[0], unit * 0.28, layer[1])
+		draw_string(ThemeDB.fallback_font, Vector2(c.x - unit * 0.28, c.y + unit * 0.16),
+			"1", HORIZONTAL_ALIGNMENT_CENTER, unit * 0.56, int(unit * 0.22), Color.WHITE)
+		draw_circle(c + Vector2(-unit * 0.10, -unit * 0.02), unit * 0.05,
+			Color(G.CANOPY_HL, 0.85))
+
+	func _draw_crown(c: Vector2, unit: float) -> void:
+		var pts := PackedVector2Array([
+			Vector2(-unit * 0.32, unit * 0.10), Vector2(-unit * 0.22, -unit * 0.24),
+			Vector2(-unit * 0.11, 0.0), Vector2(0.0, -unit * 0.30),
+			Vector2(unit * 0.11, 0.0), Vector2(unit * 0.22, -unit * 0.24),
+			Vector2(unit * 0.32, unit * 0.10),
+		])
+		for layer in [[Vector2(0.0, unit * 0.05), G.HAT_D], [Vector2.ZERO, G.HAT]]:
+			var off: Vector2 = layer[0]
+			var shifted := PackedVector2Array()
+			for p in pts:
+				shifted.append(c + p + off)
+			draw_colored_polygon(shifted, layer[1])
+			for i in [1, 3, 5]:
+				draw_circle(c + pts[i] + off, unit * 0.05, layer[1])
+			# Band as a soft pill across the bottom.
+			draw_rect(Rect2(c.x - unit * 0.24 + off.x, c.y + unit * 0.08 + off.y,
+				unit * 0.48, unit * 0.16), layer[1])
+			draw_circle(c + Vector2(-unit * 0.24, unit * 0.16) + off, unit * 0.08, layer[1])
+			draw_circle(c + Vector2(unit * 0.24, unit * 0.16) + off, unit * 0.08, layer[1])
+		draw_circle(c + Vector2(-unit * 0.18, unit * 0.16), unit * 0.04,
+			Color(G.CANOPY_HL, 0.85))
 
 
 class SettingsGear extends Control:
