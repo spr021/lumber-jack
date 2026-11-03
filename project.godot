@@ -30,6 +30,10 @@ window/stretch/aspect="expand"
 window/handheld/orientation=1
 window/size/immersive_mode=true
 
+[gui]
+
+theme/custom="res://assets/fonts/ui_theme.tres"
+
 [rendering]
 
 renderer/rendering_method="mobile"

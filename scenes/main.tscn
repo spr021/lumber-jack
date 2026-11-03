@@ -1,6 +1,8 @@
-[gd_scene load_steps=18 format=3 uid="uid://ytj6waougeiu"]
+[gd_scene load_steps=19 format=3 uid="uid://ytj6waougeiu"]
 
 [ext_resource type="Script" uid="uid://camgmcl4t5l1k" path="res://scripts/main.gd" id="1_main"]
+
+[ext_resource type="FontFile" path="res://assets/fonts/baloo2_extrabold.ttf" id="2_font"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBox_score"]
 bg_color = Color(1, 1, 1, 1)
@@ -12,6 +14,7 @@ shadow_color = Color(0.294, 0.294, 0.294, 0.12)
 shadow_size = 6
 
 [sub_resource type="LabelSettings" id="LabelSettings_score"]
+font = ExtResource("2_font")
 font_size = 40
 font_color = Color(0.294, 0.294, 0.294, 1)
 
@@ -25,10 +28,12 @@ shadow_color = Color(0.294, 0.294, 0.294, 0.18)
 shadow_size = 10
 
 [sub_resource type="LabelSettings" id="LabelSettings_over"]
+font = ExtResource("2_font")
 font_size = 46
 font_color = Color(1, 0.294, 0.294, 1)
 
 [sub_resource type="LabelSettings" id="LabelSettings_final"]
+font = ExtResource("2_font")
 font_size = 30
 font_color = Color(0.294, 0.294, 0.294, 1)
 
@@ -94,6 +99,7 @@ corner_radius_bottom_right = 4
 corner_radius_bottom_left = 4
 
 [sub_resource type="LabelSettings" id="LabelSettings_paused"]
+font = ExtResource("2_font")
 font_size = 46
 font_color = Color(0.294, 0.294, 0.294, 1)
 

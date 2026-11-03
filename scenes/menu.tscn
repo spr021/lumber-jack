@@ -1,6 +1,8 @@
-[gd_scene load_steps=7 format=3 uid="uid://c5kott351hbex"]
+[gd_scene load_steps=8 format=3 uid="uid://c5kott351hbex"]
 
 [ext_resource type="Script" uid="uid://bjegehg8sn7ek" path="res://scripts/menu.gd" id="1_menu"]
+
+[ext_resource type="FontFile" path="res://assets/fonts/baloo2_extrabold.ttf" id="2_font"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBox_sign"]
 bg_color = Color(0.725, 0.541, 0.369, 1)
@@ -17,6 +19,7 @@ shadow_color = Color(0.294, 0.294, 0.294, 0.18)
 shadow_size = 10
 
 [sub_resource type="LabelSettings" id="LabelSettings_title"]
+font = ExtResource("2_font")
 font_size = 78
 
 [sub_resource type="StyleBoxEmpty" id="StyleBox_focus"]

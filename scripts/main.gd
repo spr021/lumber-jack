@@ -8,6 +8,10 @@ extends Node2D
 ## score. When the bar runs dry the lumberjack drops — the clock is the
 ## only killer, chopping into a branch simply earns nothing.
 
+# UI font: Baloo 2 (SIL OFL, see assets/fonts/OFL.txt) — chunky rounded letters
+# matching the Duolingo-style UI. Extra-bold for everything drawn by hand.
+const UI_FONT := preload("res://assets/fonts/baloo2_extrabold.ttf")
+
 const SEG_H := 150.0
 const SEG_COUNT := 12
 const TRUNK_W := 130.0
@@ -768,7 +772,7 @@ func _draw_bushes(ground: float, vw: float) -> void:
 
 
 func _draw_pops() -> void:
-	var font := ThemeDB.fallback_font
+	var font := UI_FONT
 	for pop in pops:
 		var alpha: float = minf(pop.life / pop.total * 2.0, 1.0)
 		draw_string(font, Vector2(pop.pos.x - 220.0, pop.pos.y), pop.text,
@@ -798,7 +802,7 @@ func _draw_combo_badge() -> void:
 			fill = BAR_RED
 			edge = BAR_RED_D
 			text_color = Color.WHITE
-	var font := ThemeDB.fallback_font
+	var font := UI_FONT
 	var fsize := 24
 	var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize).x
 	var rect := Rect2(_vw() * 0.5 - (w + 28.0) * 0.5, 240.0 + BAR_H + 12.0, w + 28.0, 40.0)
@@ -828,7 +832,7 @@ func _draw_countdown() -> void:
 	# White disc on a darker bottom edge, matching the block UI style.
 	draw_circle(Vector2(0.0, 7.0), 96.0, Color(UI_GREY, alpha))
 	draw_circle(Vector2.ZERO, 96.0, Color(Color.WHITE, alpha))
-	var font := ThemeDB.fallback_font
+	var font := UI_FONT
 	draw_string(font, Vector2(-200.0, 36.0), str(3 - int(countdown_t)),
 		HORIZONTAL_ALIGNMENT_CENTER, 400.0, 104, Color(UI_TEXT, alpha))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

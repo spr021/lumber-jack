@@ -1153,7 +1153,7 @@ class LeaderboardIcon extends Control:
 			[0.0, unit * 0.52, G.HAT, G.HAT_D, "1"],
 			[unit * 0.26, unit * 0.26, G.CHIP2, Color("cc7a00"), "3"],
 		]
-		var font := ThemeDB.fallback_font
+		var font := G.UI_FONT
 		var bottom := c.y + unit * 0.34
 		var w := unit * 0.24
 		for p in pillars:
@@ -1179,7 +1179,7 @@ class LeaderboardIcon extends Control:
 			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		for layer in [[Vector2(0.0, unit * 0.05), G.HAT_D], [Vector2.ZERO, G.HAT]]:
 			draw_circle(c + Vector2(0.0, unit * 0.08) + layer[0], unit * 0.28, layer[1])
-		draw_string(ThemeDB.fallback_font, Vector2(c.x - unit * 0.28, c.y + unit * 0.16),
+		draw_string(G.UI_FONT, Vector2(c.x - unit * 0.28, c.y + unit * 0.16),
 			"1", HORIZONTAL_ALIGNMENT_CENTER, unit * 0.56, int(unit * 0.22), Color.WHITE)
 		draw_circle(c + Vector2(-unit * 0.10, -unit * 0.02), unit * 0.05,
 			Color(G.CANOPY_HL, 0.85))
