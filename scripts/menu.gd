@@ -24,6 +24,13 @@ var name_dialog: Control
 var name_edit: LineEdit
 var name_hint: Label
 
+# --- settings (sound/haptics toggles, persisted with the best score) ---
+var sound_on := true
+var haptics_on := true
+var settings_dialog: Control
+var sound_toggle: ToggleSwitch
+var haptic_toggle: ToggleSwitch
+
 var best := 0
 var elapsed := 0.0
 var segments: Array = []
@@ -36,9 +43,11 @@ func _ready() -> void:
 	# Harness first: it seeds the RNG that _build_tree consumes.
 	_setup_debug_harness()
 	best = _load_best()
+	_load_settings()
 	play_button.pressed.connect(_on_play_pressed)
 	_build_tree()
 	_setup_leaderboard()
+	_build_settings()
 
 
 func _build_tree() -> void:
@@ -65,6 +74,140 @@ func _load_best() -> int:
 	return 0
 
 
+# ---------------------------------------------------------------- settings ---
+
+func _load_settings() -> void:
+	var config := ConfigFile.new()
+	if config.load(G.SAVE_PATH) == OK:
+		sound_on = config.get_value("settings", "sound", true)
+		haptics_on = config.get_value("settings", "haptics", true)
+
+
+func _save_settings() -> void:
+	# Load first: the best score lives in the same file.
+	var config := ConfigFile.new()
+	config.load(G.SAVE_PATH)
+	config.set_value("settings", "sound", sound_on)
+	config.set_value("settings", "haptics", haptics_on)
+	config.save(G.SAVE_PATH)
+
+
+func _build_settings() -> void:
+	_build_settings_button()
+	_build_settings_dialog()
+
+
+func _build_settings_button() -> void:
+	# Invisible tappable area: the icon itself floats on the sky, no card.
+	var button := Button.new()
+	button.focus_mode = Control.FOCUS_NONE
+	button.anchor_left = 1.0
+	button.anchor_right = 1.0
+	button.offset_left = -104.0
+	button.offset_top = 20.0
+	button.offset_right = -20.0
+	button.offset_bottom = 104.0
+	for state in ["normal", "hover", "pressed", "focus"]:
+		button.add_theme_stylebox_override(state, StyleBoxEmpty.new())
+	button.pressed.connect(_open_settings)
+	$UI.add_child(button)
+
+	var gear := SettingsGear.new()
+	gear.set_anchors_preset(Control.PRESET_FULL_RECT)
+	gear.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.add_child(gear)
+
+
+func _build_settings_dialog() -> void:
+	settings_dialog = Control.new()
+	settings_dialog.set_anchors_preset(Control.PRESET_FULL_RECT)
+	settings_dialog.visible = false
+	$UI.add_child(settings_dialog)
+
+	var dim := ColorRect.new()
+	dim.color = Color(0.0, 0.0, 0.0, 0.45)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	settings_dialog.add_child(dim)
+
+	var card := Panel.new()
+	card.anchor_left = 0.5
+	card.anchor_right = 0.5
+	card.anchor_top = 0.5
+	card.anchor_bottom = 0.5
+	card.offset_left = -240.0
+	card.offset_top = -164.0
+	card.offset_right = 240.0
+	card.offset_bottom = 164.0
+	card.add_theme_stylebox_override("panel", _card_style())
+	settings_dialog.add_child(card)
+
+	var box := VBoxContainer.new()
+	box.set_anchors_preset(Control.PRESET_FULL_RECT)
+	box.offset_left = 26.0
+	box.offset_top = 24.0
+	box.offset_right = -26.0
+	box.offset_bottom = -24.0
+	box.add_theme_constant_override("separation", 16)
+	card.add_child(box)
+
+	var title := _board_label("SETTINGS", 28, G.UI_TEXT)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(title)
+
+	box.add_child(_settings_row("SOUND", sound_on, _on_sound_toggled))
+	box.add_child(_settings_row("HAPTICS", haptics_on, _on_haptic_toggled))
+
+	box.add_child(_dialog_button("DONE", 24, 60.0, true, func() -> void:
+		settings_dialog.visible = false))
+
+
+func _settings_row(text: String, initial: bool, handler: Callable) -> Panel:
+	var row := Panel.new()
+	row.custom_minimum_size = Vector2(0.0, 64.0)
+	row.add_theme_stylebox_override("panel", _pill_style())
+
+	var content := HBoxContainer.new()
+	content.set_anchors_preset(Control.PRESET_FULL_RECT)
+	content.offset_left = 20.0
+	content.offset_right = -14.0
+	content.add_theme_constant_override("separation", 12)
+	row.add_child(content)
+
+	var label := _board_label(text, 24, G.UI_TEXT)
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content.add_child(label)
+
+	var toggle := ToggleSwitch.new()
+	toggle.on = initial
+	toggle.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	toggle.flipped.connect(handler)
+	content.add_child(toggle)
+	if text == "SOUND":
+		sound_toggle = toggle
+	else:
+		haptic_toggle = toggle
+	return row
+
+
+func _open_settings() -> void:
+	sound_toggle.on = sound_on
+	haptic_toggle.on = haptics_on
+	settings_dialog.visible = true
+
+
+func _on_sound_toggled(on: bool) -> void:
+	sound_on = on
+	sound_toggle.on = on  # keep the widget in sync when set programmatically
+	_save_settings()
+
+
+func _on_haptic_toggled(on: bool) -> void:
+	haptics_on = on
+	haptic_toggle.on = on
+	_save_settings()
+
+
 # ---------------------------------------------------------- debug harness ---
 # Mirrors the harness in scripts/main.gd. With user args, saves one screenshot
 # of the menu and then starts the game, so the game-side harness (which sees
@@ -83,12 +226,28 @@ func _setup_debug_harness() -> void:
 
 func _run_harness() -> void:
 	var prefix := "/tmp/lj_shot"
+	var open_settings := false
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("out="):
 			prefix = arg.substr(4)
+		elif arg.begins_with("settings="):
+			open_settings = arg.substr(9) == "1"
 	await get_tree().create_timer(0.6).timeout
 	await _shot(prefix + "_menu.png")
 	print("MENU state=menu best=", best, " segs(bottom-up)=", segments)
+	if open_settings:
+		_open_settings()
+		await get_tree().create_timer(0.3).timeout
+		await _shot(prefix + "_settings.png")
+		_on_sound_toggled(false)
+		_on_haptic_toggled(false)
+		await get_tree().create_timer(0.2).timeout
+		await _shot(prefix + "_settings_off.png")
+		print("SETTINGS sound=", sound_on, " haptics=", haptics_on)
+		# Restore so the harness never leaves the user's save muted.
+		_on_sound_toggled(true)
+		_on_haptic_toggled(true)
+		settings_dialog.visible = false
 	_on_play_pressed()
 
 
@@ -637,3 +796,107 @@ func _edit_style(focused: bool) -> StyleBoxFlat:
 	style.set_border_width_all(2)
 	style.border_color = G.BAR_GREEN if focused else G.UI_GREY
 	return style
+
+
+# Custom-drawn widgets for the settings UI, matching the procedural art style.
+
+class ToggleSwitch extends Control:
+	const G := preload("res://scripts/main.gd")
+
+	signal flipped(on: bool)
+
+	var on := true:
+		set(value):
+			on = value
+			queue_redraw()
+
+	func _init() -> void:
+		custom_minimum_size = Vector2(96.0, 52.0)
+		mouse_filter = Control.MOUSE_FILTER_STOP
+
+	func _draw() -> void:
+		# Duolingo pill track: flat fill on a darker bottom edge, white knob.
+		var track := StyleBoxFlat.new()
+		track.bg_color = G.BAR_GREEN if on else G.UI_GREY
+		track.set_corner_radius_all(size.y * 0.5)
+		track.border_width_bottom = 5
+		track.border_color = G.BAR_GREEN_D if on else G.UI_GREY_D
+		track.draw(get_canvas_item(), Rect2(Vector2.ZERO, size))
+		var r := size.y * 0.5 - 6.0
+		var knob_x := size.x - r - 7.0 if on else r + 7.0
+		draw_circle(Vector2(knob_x, size.y * 0.5), r, Color.WHITE)
+
+	func _gui_input(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.pressed \
+				and event.button_index == MOUSE_BUTTON_LEFT:
+			on = not on
+			flipped.emit(on)
+
+
+class SettingsGear extends Control:
+	const G := preload("res://scripts/main.gd")
+
+	var style := "green":
+		set(value):
+			style = value
+			queue_redraw()
+
+	func _draw() -> void:
+		if style == "sliders":
+			_draw_sliders()
+		else:
+			_draw_gear()
+
+	func _draw_gear() -> void:
+		# Puffy gear in the game's block style: fat rounded lobes on a flat
+		# fill sitting on a darker bottom edge, with a plush highlight.
+		var c := size * 0.5
+		var unit := minf(size.x, size.y)
+		var fill := G.TRUNK
+		var edge := G.TRUNK_D
+		var shine := Color(0.0, 0.0, 0.0, 0.0)
+		if style == "steel":
+			fill = G.STEEL
+			edge = G.UI_GREY_D
+		elif style == "green":
+			fill = G.BAR_GREEN
+			edge = G.BAR_GREEN_D
+			shine = Color(G.CANOPY_HL, 0.85)
+		for layer in [[Vector2(0.0, unit * 0.07), edge], [Vector2.ZERO, fill]]:
+			var off: Vector2 = layer[0]
+			var col: Color = layer[1]
+			for i in 8:
+				draw_set_transform(c + off, TAU * i / 8.0, Vector2.ONE)
+				# Rounded lobes with visible notches between them: soft but
+				# still a gear, not a flower.
+				draw_rect(Rect2(unit * 0.19, -unit * 0.09, unit * 0.15, unit * 0.18), col)
+				draw_circle(Vector2(unit * 0.19, 0.0), unit * 0.09, col)
+				draw_circle(Vector2(unit * 0.34, 0.0), unit * 0.09, col)
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+			draw_circle(c + off, unit * 0.28, col)
+		draw_circle(c, unit * 0.17, Color.WHITE)
+		if shine.a > 0.0:
+			# Soft plush highlight, upper-left like the canopy highlights.
+			draw_circle(c + Vector2(-unit * 0.13, -unit * 0.13), unit * 0.055, shine)
+		if style == "wood":
+			# Light bark streak, like the trunk's growth stripes.
+			draw_rect(Rect2(c.x - unit * 0.03, c.y - unit * 0.25, unit * 0.06, unit * 0.13),
+				G.TRUNK_L)
+
+	func _draw_sliders() -> void:
+		# Mixer-style settings icon: three tracks with chunky knobs in the
+		# combo-badge colors.
+		var unit := minf(size.x, size.y)
+		var edge := unit * 0.045
+		var knob_pos := [0.0, 0.72, 0.34]
+		var knob_fill := [G.BAR_GREEN, G.HAT, G.BAR_RED]
+		var knob_edge := [G.BAR_GREEN_D, G.HAT_D, G.BAR_RED_D]
+		for i in 3:
+			var y := size.y * (0.22 + 0.26 * i)
+			var track_h := unit * 0.10
+			draw_rect(Rect2(size.x * 0.06, y + edge, size.x * 0.88, track_h), G.UI_GREY_D)
+			draw_rect(Rect2(size.x * 0.06, y, size.x * 0.88, track_h), G.UI_GREY)
+			var center := Vector2(size.x * (0.20 + 0.60 * knob_pos[i]),
+				y + track_h * 0.5)
+			draw_circle(center + Vector2(0.0, edge), unit * 0.135, knob_edge[i])
+			draw_circle(center, unit * 0.135, knob_fill[i])

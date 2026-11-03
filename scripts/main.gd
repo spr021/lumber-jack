@@ -119,6 +119,8 @@ var last_chop_at := -10.0
 var last_chop_sfx := ""
 var countdown_t := 0.0
 var sfx_players: Dictionary = {}
+var sound_on := true
+var haptics_on := true
 
 @onready var score_panel: Panel = $UI/ScorePanel
 @onready var score_label: Label = $UI/ScorePanel/ScoreLabel
@@ -137,6 +139,7 @@ var sfx_players: Dictionary = {}
 
 func _ready() -> void:
 	best = _load_best()
+	_load_settings()
 	_setup_debug_harness()
 	_setup_sfx()
 	_reset()
@@ -510,9 +513,18 @@ func _load_best() -> int:
 
 
 func _save_best(value: int) -> void:
+	# Load first: the settings section written by the menu shares this file.
 	var config := ConfigFile.new()
+	config.load(SAVE_PATH)
 	config.set_value("game", "best", value)
 	config.save(SAVE_PATH)
+
+
+func _load_settings() -> void:
+	var config := ConfigFile.new()
+	if config.load(SAVE_PATH) == OK:
+		sound_on = config.get_value("settings", "sound", true)
+		haptics_on = config.get_value("settings", "haptics", true)
 
 
 # --------------------------------------------------------- sound + haptics ---
@@ -535,6 +547,8 @@ func _setup_sfx() -> void:
 
 
 func _play_sfx(sfx_name: String, pitch := 1.0) -> void:
+	if not sound_on:
+		return
 	var player: AudioStreamPlayer = sfx_players.get(sfx_name)
 	if player == null:
 		return
@@ -561,7 +575,10 @@ func _play_chop() -> void:
 
 func _buzz(ms: int, amplitude := 0.5) -> void:
 	# Handheld only; a no-op on desktop/headless. Android honors the duration
-	# and amplitude, iOS plays its fixed system vibration.
+	# and amplitude, iOS plays its fixed system vibration. Togglable from the
+	# menu settings.
+	if not haptics_on:
+		return
 	if OS.has_feature("android") or OS.has_feature("ios") or OS.has_feature("web"):
 		Input.vibrate_handheld(ms, amplitude)
 
