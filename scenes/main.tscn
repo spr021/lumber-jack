@@ -1,4 +1,4 @@
-[gd_scene load_steps=13 format=3 uid="uid://ytj6waougeiu"]
+[gd_scene load_steps=18 format=3 uid="uid://ytj6waougeiu"]
 
 [ext_resource type="Script" uid="uid://camgmcl4t5l1k" path="res://scripts/main.gd" id="1_main"]
 
@@ -70,6 +70,37 @@ corner_radius_bottom_left = 14
 font_size = 24
 font_color = Color(1, 1, 1, 0.92)
 
+[sub_resource type="StyleBoxFlat" id="StyleBox_pause"]
+bg_color = Color(1, 1, 1, 1)
+corner_radius_top_left = 32
+corner_radius_top_right = 32
+corner_radius_bottom_right = 32
+corner_radius_bottom_left = 32
+shadow_color = Color(0.294, 0.294, 0.294, 0.12)
+shadow_size = 4
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_pause_pressed"]
+bg_color = Color(0.91, 0.92, 0.94, 1)
+corner_radius_top_left = 32
+corner_radius_top_right = 32
+corner_radius_bottom_right = 32
+corner_radius_bottom_left = 32
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_pause_bar"]
+bg_color = Color(0.294, 0.294, 0.294, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="LabelSettings" id="LabelSettings_paused"]
+font_size = 46
+font_color = Color(0.294, 0.294, 0.294, 1)
+
+[sub_resource type="LabelSettings" id="LabelSettings_pause_hint"]
+font_size = 24
+font_color = Color(0.71, 0.72, 0.74, 1)
+
 [node name="Main" type="Node2D"]
 script = ExtResource("1_main")
 
@@ -93,6 +124,36 @@ text = "0"
 label_settings = SubResource("LabelSettings_score")
 horizontal_alignment = 1
 vertical_alignment = 1
+
+[node name="PauseButton" type="Button" parent="UI"]
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -96.0
+offset_top = 52.0
+offset_right = -32.0
+offset_bottom = 116.0
+theme_override_styles/focus = SubResource("StyleBox_focus")
+theme_override_styles/hover = SubResource("StyleBox_pause")
+theme_override_styles/pressed = SubResource("StyleBox_pause_pressed")
+theme_override_styles/normal = SubResource("StyleBox_pause")
+
+[node name="BarLeft" type="Panel" parent="UI/PauseButton"]
+layout_mode = 0
+offset_left = 21.0
+offset_top = 19.0
+offset_right = 29.0
+offset_bottom = 45.0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBox_pause_bar")
+
+[node name="BarRight" type="Panel" parent="UI/PauseButton"]
+layout_mode = 0
+offset_left = 35.0
+offset_top = 19.0
+offset_right = 43.0
+offset_bottom = 45.0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBox_pause_bar")
 
 [node name="Dim" type="ColorRect" parent="UI"]
 visible = false
@@ -172,6 +233,95 @@ theme_override_styles/hover = SubResource("StyleBox_btn_grey")
 theme_override_styles/pressed = SubResource("StyleBox_btn_grey_pressed")
 theme_override_styles/normal = SubResource("StyleBox_btn_grey")
 text = "MENU"
+
+[node name="PauseCard" type="Panel" parent="UI"]
+visible = false
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -260.0
+offset_top = -230.0
+offset_right = 260.0
+offset_bottom = 210.0
+theme_override_styles/panel = SubResource("StyleBox_card")
+
+[node name="PausedLabel" type="Label" parent="UI/PauseCard"]
+layout_mode = 0
+anchor_right = 1.0
+offset_top = 46.0
+offset_bottom = 130.0
+text = "PAUSED"
+label_settings = SubResource("LabelSettings_paused")
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="PauseHintLabel" type="Label" parent="UI/PauseCard"]
+layout_mode = 0
+anchor_right = 1.0
+offset_top = 150.0
+offset_bottom = 196.0
+text = "Take a breath — the tree will wait."
+label_settings = SubResource("LabelSettings_pause_hint")
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="MenuButton" type="Button" parent="UI/PauseCard"]
+layout_mode = 0
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -170.0
+offset_top = -224.0
+offset_right = 170.0
+offset_bottom = -174.0
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_pressed_color = Color(1, 1, 1, 1)
+theme_override_font_sizes/font_size = 22
+theme_override_styles/focus = SubResource("StyleBox_focus")
+theme_override_styles/hover = SubResource("StyleBox_btn_grey")
+theme_override_styles/pressed = SubResource("StyleBox_btn_grey_pressed")
+theme_override_styles/normal = SubResource("StyleBox_btn_grey")
+text = "MENU"
+
+[node name="RestartButton" type="Button" parent="UI/PauseCard"]
+layout_mode = 0
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -170.0
+offset_top = -164.0
+offset_right = 170.0
+offset_bottom = -114.0
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_pressed_color = Color(1, 1, 1, 1)
+theme_override_font_sizes/font_size = 22
+theme_override_styles/focus = SubResource("StyleBox_focus")
+theme_override_styles/hover = SubResource("StyleBox_btn_grey")
+theme_override_styles/pressed = SubResource("StyleBox_btn_grey_pressed")
+theme_override_styles/normal = SubResource("StyleBox_btn_grey")
+text = "RESTART"
+
+[node name="ResumeButton" type="Button" parent="UI/PauseCard"]
+layout_mode = 0
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -170.0
+offset_top = -104.0
+offset_right = 170.0
+offset_bottom = -34.0
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_pressed_color = Color(1, 1, 1, 1)
+theme_override_font_sizes/font_size = 28
+theme_override_styles/focus = SubResource("StyleBox_focus")
+theme_override_styles/hover = SubResource("StyleBox_btn")
+theme_override_styles/pressed = SubResource("StyleBox_btn_pressed")
+theme_override_styles/normal = SubResource("StyleBox_btn")
+text = "RESUME"
 
 [node name="HintLabel" type="Label" parent="UI"]
 anchors_preset = 12

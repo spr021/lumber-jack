@@ -166,6 +166,50 @@ func _run_checks(game: Node2D) -> void:
 	if game.segments[0] == game.Side.LEFT:
 		failures.append("reset: unfair start segment")
 
+	# Pausing freezes the clock, blocks chops, and resume returns to play.
+	game._pause()
+	if game.state != game.State.PAUSED:
+		failures.append("pause did not enter the paused state")
+	if not game.pause_card.visible or game.pause_button.visible:
+		failures.append("pause did not swap the button for the pause card")
+	game.time_left = 1.0
+	for i in 5:
+		await process_frame
+	if not is_equal_approx(game.time_left, 1.0):
+		failures.append("the time bar drained while paused")
+	_advance(game)
+	game.segments[1] = game.Side.RIGHT
+	game.chop(game.Side.LEFT)
+	if game.score != 0 or game.combo != 0:
+		failures.append("chops must be ignored while paused")
+	game._unpause()
+	if game.state != game.State.COUNTDOWN:
+		failures.append("resume must start the countdown, not play instantly")
+	if game.pause_card.visible or game.pause_button.visible:
+		failures.append("resume must hide the pause card and button")
+	game.time_left = 1.0
+	for i in 5:
+		await process_frame
+	if not is_equal_approx(game.time_left, 1.0):
+		failures.append("the time bar drained during the countdown")
+	_advance(game)
+	game.segments[1] = game.Side.RIGHT
+	game.chop(game.Side.LEFT)
+	if game.score != 0 or game.combo != 0:
+		failures.append("chops must be ignored during the countdown")
+	# Rush the countdown to its last moment: play resumes when it runs out.
+	game.countdown_t = game.COUNTDOWN_TIME - 0.01
+	await process_frame
+	await process_frame
+	if game.state != game.State.PLAYING:
+		failures.append("countdown did not return to the playing state")
+	if not game.pause_button.visible:
+		failures.append("countdown did not restore the pause button")
+	_advance(game)
+	await process_frame
+	if game.time_left >= 1.0:
+		failures.append("the time bar did not resume draining")
+
 	for failure in failures:
 		print("FAIL: ", failure)
 	if failures.is_empty():

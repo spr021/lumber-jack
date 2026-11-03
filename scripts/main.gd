@@ -33,6 +33,9 @@ const DRAIN_MAX := 1.8
 # debounces one input from registering as two chops.
 const TIME_PENALTY := 0.6
 const CHOP_COOLDOWN := 0.1
+# Resume countdown: the game stays frozen for this long after unpausing while
+# 3-2-1 pop onto the screen, one number per second.
+const COUNTDOWN_TIME := 3.0
 # Combo: consecutive correct chops. Every correct chop scores its multiplier
 # tier (x2 from COMBO_TIER_2, x3 from _3, x4 from _4); a wrong chop resets it.
 const COMBO_TIER_2 := 5
@@ -42,7 +45,7 @@ const BAR_W := 460.0
 const BAR_H := 30.0
 
 enum Side { LEFT, RIGHT, NONE }
-enum State { PLAYING, DYING, GAME_OVER }
+enum State { PLAYING, DYING, GAME_OVER, PAUSED, COUNTDOWN }
 
 const SKY := Color("d9f1ff")
 const CLOUD := Color(1.0, 1.0, 1.0, 0.95)
@@ -101,6 +104,7 @@ var chips: Array = []
 var pops: Array = []
 var combo := 0
 var last_chop_at := -10.0
+var countdown_t := 0.0
 
 @onready var score_panel: Panel = $UI/ScorePanel
 @onready var score_label: Label = $UI/ScorePanel/ScoreLabel
@@ -110,6 +114,11 @@ var last_chop_at := -10.0
 @onready var final_label: Label = $UI/GameOverCard/FinalLabel
 @onready var restart_button: Button = $UI/GameOverCard/RestartButton
 @onready var menu_button: Button = $UI/GameOverCard/MenuButton
+@onready var pause_button: Button = $UI/PauseButton
+@onready var pause_card: Panel = $UI/PauseCard
+@onready var resume_button: Button = $UI/PauseCard/ResumeButton
+@onready var pause_restart_button: Button = $UI/PauseCard/RestartButton
+@onready var pause_menu_button: Button = $UI/PauseCard/MenuButton
 
 
 func _ready() -> void:
@@ -120,6 +129,10 @@ func _ready() -> void:
 	get_viewport().size_changed.connect(_apply_safe_area)
 	restart_button.pressed.connect(_on_restart_pressed)
 	menu_button.pressed.connect(_on_menu_pressed)
+	pause_button.pressed.connect(_on_pause_pressed)
+	resume_button.pressed.connect(_on_resume_pressed)
+	pause_restart_button.pressed.connect(_on_pause_restart_pressed)
+	pause_menu_button.pressed.connect(_on_pause_menu_pressed)
 
 
 func _on_restart_pressed() -> void:
@@ -130,6 +143,46 @@ func _on_restart_pressed() -> void:
 func _on_menu_pressed() -> void:
 	if state == State.GAME_OVER and elapsed - game_over_at >= 0.35:
 		get_tree().change_scene_to_file("res://scenes/menu.tscn")
+
+
+func _on_pause_pressed() -> void:
+	if state == State.PLAYING:
+		_pause()
+
+
+func _on_resume_pressed() -> void:
+	if state == State.PAUSED:
+		_unpause()
+
+
+func _on_pause_restart_pressed() -> void:
+	if state == State.PAUSED:
+		_reset()
+
+
+func _on_pause_menu_pressed() -> void:
+	if state == State.PAUSED:
+		get_tree().change_scene_to_file("res://scenes/menu.tscn")
+
+
+func _pause() -> void:
+	state = State.PAUSED
+	countdown_t = 0.0
+	dim.modulate.a = 1.0
+	dim.visible = true
+	pause_card.visible = true
+	pause_button.visible = false
+
+
+func _unpause() -> void:
+	# Not straight back to play: the world stays frozen through a 3-2-1
+	# countdown (_process flips it to PLAYING when the last number lands).
+	state = State.COUNTDOWN
+	countdown_t = 0.0
+	dim.visible = true
+	pause_card.visible = false
+	# A stale debounce window must not eat the first chop after resuming.
+	last_chop_at = -10.0
 
 
 func _apply_safe_area() -> void:
@@ -149,11 +202,15 @@ func _apply_safe_area() -> void:
 		0.0, vp_size.y * 0.15)
 	score_panel.offset_top = 52.0 + top
 	score_panel.offset_bottom = 128.0 + top
+	pause_button.offset_top = 52.0 + top
+	pause_button.offset_bottom = 116.0 + top
 	hint_label.offset_top = -150.0 - bottom
 	hint_label.offset_bottom = -96.0 - bottom
 
 
 func _reset() -> void:
+	countdown_t = 0.0
+	dim.modulate.a = 1.0
 	segments.clear()
 	# Fair start: the lumberjack begins on the left, so the first branch is on
 	# the right and cannot touch him.
@@ -179,17 +236,34 @@ func _reset() -> void:
 	hint_label.visible = true
 	dim.visible = false
 	game_over_card.visible = false
+	pause_card.visible = false
+	pause_button.visible = true
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	match state:
 		State.PLAYING:
+			if _is_pause_key(event):
+				_pause()
+				return
 			var side := _side_from_event(event)
 			if side != -1:
 				chop(side)
+		State.PAUSED:
+			if _is_pause_key(event):
+				_unpause()
+		State.COUNTDOWN:
+			# Escaping mid-countdown goes straight back to the pause card.
+			if _is_pause_key(event):
+				_pause()
 		State.GAME_OVER:
 			if _is_confirm(event):
 				_reset()
+
+
+func _is_pause_key(event: InputEvent) -> bool:
+	# Escape doubles as ui_cancel; P is the classic pause key.
+	return event.is_action_pressed("ui_cancel") or _key(event, KEY_P)
 
 
 func _side_from_event(event: InputEvent) -> int:
@@ -268,6 +342,7 @@ func _combo_multiplier(streak: int) -> int:
 
 func _die() -> void:
 	state = State.DYING
+	pause_button.visible = false
 	death_timer = 0.0
 	shake = 12.0
 	if score > best:
@@ -289,6 +364,22 @@ func _show_game_over() -> void:
 
 
 func _process(delta: float) -> void:
+	if state == State.PAUSED:
+		# Frozen frame: no clock drain, no drift, no particles until resumed.
+		queue_redraw()
+		return
+	if state == State.COUNTDOWN:
+		countdown_t += delta
+		# The pause dim dissolves while the numbers take over the screen.
+		dim.modulate.a = maxf(1.0 - countdown_t / 0.5, 0.0)
+		if countdown_t >= COUNTDOWN_TIME:
+			countdown_t = 0.0
+			dim.visible = false
+			dim.modulate.a = 1.0
+			pause_button.visible = true
+			state = State.PLAYING
+		queue_redraw()
+		return
 	elapsed += delta
 	if state == State.PLAYING:
 		time_left -= minf(DRAIN_BASE + DRAIN_PER_SCORE * score, DRAIN_MAX) * delta
@@ -408,7 +499,8 @@ func _save_best(value: int) -> void:
 # Test automation only; inactive unless the game is started with user args:
 #   godot --path . ++ seed=12345 seq=LLRR out=/tmp/shot
 # `seq` auto-chops that side sequence (0.15s apart) and saves a screenshot
-# after every chop, so scripted runs can be inspected visually.
+# after every chop, so scripted runs can be inspected visually. `pause=1`
+# snapshots the paused, countdown and resumed screens after the sequence.
 
 func _setup_debug_harness() -> void:
 	var args := OS.get_cmdline_user_args()
@@ -418,6 +510,7 @@ func _setup_debug_harness() -> void:
 	var prefix := "/tmp/lj_shot"
 	var seq := ""
 	var wait := 1.2
+	var pause_check := false
 	for arg in args:
 		if arg.begins_with("seed="):
 			seed(arg.substr(5).to_int())
@@ -427,10 +520,13 @@ func _setup_debug_harness() -> void:
 			prefix = arg.substr(4)
 		elif arg.begins_with("wait="):
 			wait = arg.substr(5).to_float()
-	_run_harness_sequence.call_deferred(prefix, seq, wait)
+		elif arg.begins_with("pause="):
+			pause_check = arg.substr(6) != "0"
+	_run_harness_sequence.call_deferred(prefix, seq, wait, pause_check)
 
 
-func _run_harness_sequence(prefix: String, seq: String, wait: float) -> void:
+func _run_harness_sequence(prefix: String, seq: String, wait: float,
+		pause_check := false) -> void:
 	await get_tree().create_timer(0.5).timeout
 	await _shot(prefix + "_start.png")
 	if seq == "auto":
@@ -444,6 +540,15 @@ func _run_harness_sequence(prefix: String, seq: String, wait: float) -> void:
 			chop(Side.LEFT if seq[i] == "L" else Side.RIGHT)
 			await get_tree().create_timer(0.15).timeout
 			await _shot("%s_%02d.png" % [prefix, i + 1])
+	if pause_check:
+		_pause()
+		await get_tree().create_timer(0.3).timeout
+		await _shot(prefix + "_paused.png")
+		_unpause()
+		await get_tree().create_timer(0.3).timeout
+		await _shot(prefix + "_countdown.png")
+		await get_tree().create_timer(COUNTDOWN_TIME).timeout
+		await _shot(prefix + "_resumed.png")
 	await get_tree().create_timer(wait).timeout
 	await _shot(prefix + "_end.png")
 	if state == State.GAME_OVER:
@@ -564,6 +669,7 @@ func _draw() -> void:
 	_draw_pops()
 	_draw_time_bar()
 	_draw_combo_badge()
+	_draw_countdown()
 
 
 func _draw_bushes(ground: float, vw: float) -> void:
@@ -611,6 +717,41 @@ func _draw_combo_badge() -> void:
 	_draw_block(rect, 20.0, fill, edge, 5.0)
 	draw_string(font, rect.position + Vector2(0.0, 27.0), text,
 		HORIZONTAL_ALIGNMENT_CENTER, rect.size.x, fsize, text_color)
+
+
+func _draw_countdown() -> void:
+	if state != State.COUNTDOWN:
+		return
+	# Each number owns one second: it pops in with a little overshoot, holds,
+	# and fades out just before the next one lands.
+	var t := countdown_t - floorf(countdown_t)
+	var scale_f := 0.4 + 0.6 * _back_out(minf(t / 0.35, 1.0))
+	var alpha := 1.0
+	if t < 0.15:
+		alpha = t / 0.15
+	elif t > 0.8:
+		alpha = maxf((1.0 - t) / 0.2, 0.0)
+	var center := Vector2(_vw() * 0.5, _vh() * 0.5)
+	draw_set_transform(center, 0.0, Vector2.ONE * scale_f)
+	# Ripple ring chasing the disc outward as each number lands.
+	var ring := minf(t / 0.45, 1.0)
+	draw_arc(Vector2.ZERO, 96.0 + 52.0 * ring, 0.0, TAU, 48,
+		Color(UI_GREY, (1.0 - ring) * 0.5 * alpha), 6.0)
+	# White disc on a darker bottom edge, matching the block UI style.
+	draw_circle(Vector2(0.0, 7.0), 96.0, Color(UI_GREY, alpha))
+	draw_circle(Vector2.ZERO, 96.0, Color(Color.WHITE, alpha))
+	var font := ThemeDB.fallback_font
+	draw_string(font, Vector2(-200.0, 36.0), str(3 - int(countdown_t)),
+		HORIZONTAL_ALIGNMENT_CENTER, 400.0, 104, Color(UI_TEXT, alpha))
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+func _back_out(t: float) -> float:
+	# Standard back ease-out: rises ~10% past 1 near the end, settles at 1.
+	const C1 := 1.70158
+	const C3 := C1 + 1.0
+	var u := t - 1.0
+	return 1.0 + C3 * u * u * u + C1 * u * u
 
 
 func _draw_time_bar() -> void:
