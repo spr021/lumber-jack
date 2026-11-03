@@ -15,6 +15,10 @@ run/main_scene="res://scenes/menu.tscn"
 config/features=PackedStringArray("4.4", "Mobile")
 config/icon="res://icon.png"
 
+[autoload]
+
+Scores="*res://scripts/scores_api.gd"
+
 [display]
 
 window/size/viewport_width=720
@@ -29,5 +33,5 @@ window/size/immersive_mode=true
 [rendering]
 
 renderer/rendering_method="mobile"
-renderer/rendering_method.android="gl_compatibility"
 textures/vram_compression/import_etc2_astc=true
+renderer/rendering_method.android="gl_compatibility"

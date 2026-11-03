@@ -269,6 +269,11 @@ func _die() -> void:
 	if score > best:
 		best = score
 		_save_best(best)
+	# Upload the run to the online leaderboard. Guarded: the headless rules
+	# test runs without the autoload present.
+	var scores := get_node_or_null("/root/Scores")
+	if scores:
+		scores.submit(score)
 
 
 func _show_game_over() -> void:

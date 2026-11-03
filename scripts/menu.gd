@@ -8,13 +8,27 @@ extends Node2D
 ## The game starts only through the PLAY button.
 
 const G := preload("res://scripts/main.gd")
+const S := preload("res://scripts/scores_api.gd")
+
+# --- online leaderboard (all UI built in code, see bottom section) ---
+var scores_api: Node = null
+var board_top: Array = []
+var board_me: Dictionary = {}
+var board_group: Control
+var top_name_labels: Array[Label] = []
+var top_score_labels: Array[Label] = []
+var me_rank_label: Label
+var me_name_label: Label
+var me_score_label: Label
+var name_dialog: Control
+var name_edit: LineEdit
+var name_hint: Label
 
 var best := 0
 var elapsed := 0.0
 var segments: Array = []
 
 @onready var title_card: Panel = $UI/TitleCard
-@onready var best_label: Label = $UI/BestPanel/BestLabel
 @onready var play_button: Button = $UI/PlayButton
 
 
@@ -22,9 +36,9 @@ func _ready() -> void:
 	# Harness first: it seeds the RNG that _build_tree consumes.
 	_setup_debug_harness()
 	best = _load_best()
-	best_label.text = "BEST %d" % best
 	play_button.pressed.connect(_on_play_pressed)
 	_build_tree()
+	_setup_leaderboard()
 
 
 func _build_tree() -> void:
@@ -268,3 +282,358 @@ func _rounded_points(rect: Rect2, radius: float, seg := 5) -> PackedVector2Array
 			var a: float = arc[1] + (arc[2] - arc[1]) * i / seg
 			pts.append(arc[0] + Vector2.from_angle(a) * r)
 	return pts
+
+
+# ------------------------------------------------------------- leaderboard ---
+# Top-3 card between the title sign and BEST, plus a tappable "YOU" row that
+# opens the rename dialog. The Scores autoload handles device identity and
+# all HTTP; this section is display only.
+
+func _setup_leaderboard() -> void:
+	scores_api = get_node_or_null("/root/Scores")
+	_build_board()
+	_build_name_dialog()
+	if scores_api:
+		scores_api.leaderboard_loaded.connect(_on_leaderboard_loaded)
+		_refresh_board()
+		scores_api.retry_pending()
+		scores_api.fetch_leaderboard()
+
+
+func _on_leaderboard_loaded(ok: bool, data: Dictionary) -> void:
+	if not ok:
+		return  # keep whatever is on screen; offline shows placeholders
+	board_top = data.get("top", [])
+	var me: Variant = data.get("me")
+	board_me = me if me is Dictionary else {}
+	_refresh_board()
+
+
+func _build_board() -> void:
+	# No enclosing card: a floating header, three slim white pills for the
+	# top 3 and a green pill for this device, all hovering over the world.
+	# Bottom sits above the lumberjack so he stays fully visible on the grass.
+	board_group = Control.new()
+	board_group.anchor_left = 0.5
+	board_group.anchor_right = 0.5
+	board_group.anchor_top = 1.0
+	board_group.anchor_bottom = 1.0
+	board_group.offset_left = -260.0
+	board_group.offset_top = -768.0
+	board_group.offset_right = 260.0
+	board_group.offset_bottom = -420.0
+	board_group.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	$UI.add_child(board_group)
+
+	var rows := VBoxContainer.new()
+	rows.set_anchors_preset(Control.PRESET_FULL_RECT)
+	rows.alignment = BoxContainer.ALIGNMENT_CENTER
+	rows.add_theme_constant_override("separation", 12)
+	rows.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	board_group.add_child(rows)
+
+	for i in 3:
+		rows.add_child(_top_pill(i))
+
+	rows.add_child(_you_pill())
+
+
+func _top_pill(place: int) -> Panel:
+	var pill := Panel.new()
+	pill.custom_minimum_size = Vector2(0.0, 64.0)
+	pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pill.add_theme_stylebox_override("panel", _pill_style())
+
+	var row := HBoxContainer.new()
+	row.set_anchors_preset(Control.PRESET_FULL_RECT)
+	row.offset_left = 16.0
+	row.offset_right = -18.0
+	row.add_theme_constant_override("separation", 12)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pill.add_child(row)
+
+	var medal := Panel.new()
+	medal.custom_minimum_size = Vector2(40.0, 40.0)
+	medal.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	medal.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var medal_style := StyleBoxFlat.new()
+	medal_style.bg_color = _medal_color(place)
+	medal_style.set_corner_radius_all(20.0)
+	medal.add_theme_stylebox_override("panel", medal_style)
+	row.add_child(medal)
+
+	var number := _board_label(str(place + 1), 22, Color.WHITE)
+	number.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	medal.add_child(number)
+	number.set_anchors_preset(Control.PRESET_FULL_RECT)
+
+	var name_label := _board_label("—", 26, G.UI_TEXT)
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_label.clip_text = true
+	row.add_child(name_label)
+
+	var score_label := _board_label("", 26, G.UI_GREY_D)
+	score_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	row.add_child(score_label)
+
+	top_name_labels.append(name_label)
+	top_score_labels.append(score_label)
+	return pill
+
+
+func _you_pill() -> Button:
+	var pill := Button.new()
+	pill.custom_minimum_size = Vector2(0.0, 64.0)
+	pill.focus_mode = Control.FOCUS_NONE
+	pill.mouse_filter = Control.MOUSE_FILTER_STOP
+	pill.pressed.connect(_open_name_dialog)
+	pill.add_theme_stylebox_override("normal", _you_style())
+	pill.add_theme_stylebox_override("hover", _you_style())
+	pill.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	var pressed := _you_style()
+	pressed.bg_color = G.BAR_GREEN_D
+	pill.add_theme_stylebox_override("pressed", pressed)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pill.add_child(row)
+	# A Button doesn't lay out its children: pin the row to the button rect.
+	row.set_anchors_preset(Control.PRESET_FULL_RECT)
+	row.offset_left = 16.0
+	row.offset_right = -18.0
+
+	row.add_child(_board_label("YOU", 16, Color(1.0, 1.0, 1.0, 0.9)))
+
+	var circle := Panel.new()
+	circle.custom_minimum_size = Vector2(36.0, 36.0)
+	circle.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	circle.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var circle_style := StyleBoxFlat.new()
+	circle_style.bg_color = Color.WHITE
+	circle_style.set_corner_radius_all(18.0)
+	circle.add_theme_stylebox_override("panel", circle_style)
+	row.add_child(circle)
+
+	me_rank_label = _board_label("–", 20, G.BAR_GREEN)
+	me_rank_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	circle.add_child(me_rank_label)
+	me_rank_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+
+	me_name_label = _board_label("—", 26, Color.WHITE)
+	me_name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	me_name_label.clip_text = true
+	row.add_child(me_name_label)
+
+	row.add_child(_board_label("EDIT", 15, Color(1.0, 1.0, 1.0, 0.75)))
+
+	me_score_label = _board_label("", 26, Color.WHITE)
+	me_score_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	row.add_child(me_score_label)
+	return pill
+
+
+func _build_name_dialog() -> void:
+	name_dialog = Control.new()
+	name_dialog.set_anchors_preset(Control.PRESET_FULL_RECT)
+	name_dialog.visible = false
+	$UI.add_child(name_dialog)
+
+	var dim := ColorRect.new()
+	dim.color = Color(0.0, 0.0, 0.0, 0.45)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	name_dialog.add_child(dim)
+
+	var card := Panel.new()
+	card.anchor_left = 0.5
+	card.anchor_right = 0.5
+	card.anchor_top = 0.5
+	card.anchor_bottom = 0.5
+	card.offset_left = -240.0
+	card.offset_top = -180.0
+	card.offset_right = 240.0
+	card.offset_bottom = 180.0
+	card.add_theme_stylebox_override("panel", _card_style())
+	name_dialog.add_child(card)
+
+	var box := VBoxContainer.new()
+	box.set_anchors_preset(Control.PRESET_FULL_RECT)
+	box.offset_left = 30.0
+	box.offset_top = 26.0
+	box.offset_right = -30.0
+	box.offset_bottom = -26.0
+	box.add_theme_constant_override("separation", 14)
+	card.add_child(box)
+
+	var title := _board_label("YOUR NAME", 28, G.UI_TEXT)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(title)
+
+	name_edit = LineEdit.new()
+	name_edit.max_length = S.NAME_MAX
+	name_edit.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_edit.placeholder_text = S.DEFAULT_NAME
+	name_edit.custom_minimum_size = Vector2(0.0, 56.0)
+	name_edit.add_theme_font_size_override("font_size", 28)
+	name_edit.add_theme_stylebox_override("normal", _edit_style(false))
+	name_edit.add_theme_stylebox_override("focus", _edit_style(true))
+	name_edit.text_submitted.connect(func(_text: String) -> void: _on_name_save())
+	box.add_child(name_edit)
+
+	name_hint = _board_label("", 17, G.BAR_RED)
+	name_hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_child(name_hint)
+
+	var buttons := HBoxContainer.new()
+	buttons.add_theme_constant_override("separation", 10)
+	var save := _dialog_button("SAVE", 26, 60.0, true, _on_name_save)
+	save.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	buttons.add_child(save)
+	var reroll := _dialog_button("NEW", 20, 60.0, false, _on_name_reroll)
+	reroll.custom_minimum_size = Vector2(110.0, 60.0)
+	buttons.add_child(reroll)
+	box.add_child(buttons)
+
+	box.add_child(_dialog_button("CANCEL", 18, 46.0, false, func() -> void:
+		name_dialog.visible = false))
+
+
+func _dialog_button(text: String, font_size: int, height: float, primary: bool,
+		handler: Callable) -> Button:
+	var button := Button.new()
+	button.text = text
+	button.custom_minimum_size = Vector2(0.0, height)
+	button.focus_mode = Control.FOCUS_NONE
+	button.add_theme_font_size_override("font_size", font_size)
+	button.add_theme_color_override("font_color", Color.WHITE)
+	button.add_theme_color_override("font_pressed_color", Color.WHITE)
+	button.add_theme_color_override("font_hover_color", Color.WHITE)
+	if primary:
+		button.add_theme_stylebox_override("normal", _fill_style(G.BAR_GREEN, G.BAR_GREEN_D))
+		button.add_theme_stylebox_override("hover", _fill_style(G.BAR_GREEN, G.BAR_GREEN_D))
+		button.add_theme_stylebox_override("pressed", _fill_style(G.BAR_GREEN_D, G.BAR_GREEN_D))
+	else:
+		button.add_theme_stylebox_override("normal", _fill_style(G.UI_GREY, G.UI_GREY_D))
+		button.add_theme_stylebox_override("hover", _fill_style(G.UI_GREY, G.UI_GREY_D))
+		button.add_theme_stylebox_override("pressed", _fill_style(G.UI_GREY_D, G.UI_GREY_D))
+	button.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	button.pressed.connect(handler)
+	return button
+
+
+func _open_name_dialog() -> void:
+	if scores_api:
+		name_edit.text = scores_api.player_name
+	name_hint.visible = false
+	name_dialog.visible = true
+	name_edit.grab_focus()
+	name_edit.select_all()
+
+
+func _on_name_save() -> void:
+	if scores_api == null:
+		name_dialog.visible = false
+		return
+	name_hint.visible = false
+	var status: String = await scores_api.update_name(name_edit.text)
+	match status:
+		"ok":
+			name_dialog.visible = false
+			_refresh_board()
+			scores_api.fetch_leaderboard()
+		"taken":
+			name_hint.text = "NAME TAKEN — TRY ANOTHER"
+			name_hint.visible = true
+		_:
+			name_hint.text = "NO CONNECTION"
+			name_hint.visible = true
+
+
+func _on_name_reroll() -> void:
+	if scores_api == null:
+		return
+	var suggested: String = await scores_api.suggest_name()
+	if suggested != "":
+		name_edit.text = suggested
+
+
+func _refresh_board() -> void:
+	for i in top_name_labels.size():
+		if i < board_top.size() and board_top[i] is Dictionary:
+			var entry: Dictionary = board_top[i]
+			top_name_labels[i].text = str(entry.get("name", "—"))
+			top_score_labels[i].text = str(int(entry.get("score", 0)))
+		else:
+			top_name_labels[i].text = "—"
+			top_score_labels[i].text = ""
+	var display_name: String = scores_api.player_name if scores_api else S.DEFAULT_NAME
+	me_name_label.text = display_name
+	# score/rank are null until this device's first submitted run
+	var me_rank: Variant = board_me.get("rank")
+	var me_score: Variant = board_me.get("score")
+	me_rank_label.text = str(int(me_rank)) if me_rank != null else "–"
+	me_score_label.text = str(int(me_score)) if me_score != null else str(best)
+
+
+func _board_label(text: String, font_size: int, color: Color) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.add_theme_font_size_override("font_size", font_size)
+	label.add_theme_color_override("font_color", color)
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	return label
+
+
+func _medal_color(place: int) -> Color:
+	if place == 0:
+		return G.HAT  # gold
+	if place == 1:
+		return Color("b0bec5")  # silver
+	return G.CHIP2  # bronze
+
+
+func _pill_style() -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color.WHITE
+	style.set_corner_radius_all(32.0)
+	style.set_border_width_all(2)
+	style.border_color = Color("e5e5e5")
+	return style
+
+
+func _you_style() -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = G.BAR_GREEN
+	style.set_corner_radius_all(32.0)
+	style.border_width_bottom = 5
+	style.border_color = G.BAR_GREEN_D
+	return style
+
+
+func _card_style() -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color.WHITE
+	style.set_corner_radius_all(28)
+	style.shadow_color = Color(0.294, 0.294, 0.294, 0.18)
+	style.shadow_size = 10
+	return style
+
+
+func _fill_style(bg: Color, edge: Color) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = bg
+	style.set_corner_radius_all(16)
+	style.border_width_bottom = 6
+	style.border_color = edge
+	return style
+
+
+func _edit_style(focused: bool) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color.WHITE
+	style.set_corner_radius_all(12)
+	style.set_border_width_all(2)
+	style.border_color = G.BAR_GREEN if focused else G.UI_GREY
+	return style

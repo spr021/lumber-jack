@@ -1,14 +1,6 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=7 format=3 uid="uid://c5kott351hbex"]
 
-[ext_resource type="Script" path="res://scripts/menu.gd" id="1_menu"]
-
-[sub_resource type="LabelSettings" id="LabelSettings_title"]
-font_size = 78
-font_color = Color(1, 1, 1, 1)
-
-[sub_resource type="LabelSettings" id="LabelSettings_best"]
-font_size = 30
-font_color = Color(0.294, 0.294, 0.294, 1)
+[ext_resource type="Script" uid="uid://bjegehg8sn7ek" path="res://scripts/menu.gd" id="1_menu"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBox_sign"]
 bg_color = Color(0.725, 0.541, 0.369, 1)
@@ -24,23 +16,19 @@ corner_radius_bottom_left = 26
 shadow_color = Color(0.294, 0.294, 0.294, 0.18)
 shadow_size = 10
 
-[sub_resource type="StyleBoxFlat" id="StyleBox_card"]
-bg_color = Color(1, 1, 1, 1)
-corner_radius_top_left = 28
-corner_radius_top_right = 28
-corner_radius_bottom_right = 28
-corner_radius_bottom_left = 28
-shadow_color = Color(0.294, 0.294, 0.294, 0.18)
-shadow_size = 10
+[sub_resource type="LabelSettings" id="LabelSettings_title"]
+font_size = 78
+
+[sub_resource type="StyleBoxEmpty" id="StyleBox_focus"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBox_btn"]
 bg_color = Color(0.345, 0.8, 0.008, 1)
+border_width_bottom = 6
+border_color = Color(0.345, 0.655, 0, 1)
 corner_radius_top_left = 16
 corner_radius_top_right = 16
 corner_radius_bottom_right = 16
 corner_radius_bottom_left = 16
-border_width_bottom = 6
-border_color = Color(0.345, 0.655, 0, 1)
 
 [sub_resource type="StyleBoxFlat" id="StyleBox_btn_pressed"]
 bg_color = Color(0.345, 0.655, 0, 1)
@@ -49,14 +37,13 @@ corner_radius_top_right = 16
 corner_radius_bottom_right = 16
 corner_radius_bottom_left = 16
 
-[sub_resource type="StyleBoxEmpty" id="StyleBox_focus"]
-
 [node name="Menu" type="Node2D"]
 script = ExtResource("1_menu")
 
 [node name="UI" type="CanvasLayer" parent="."]
 
 [node name="TitleCard" type="Panel" parent="UI"]
+anchors_preset = 5
 anchor_left = 0.5
 anchor_right = 0.5
 offset_left = -250.0
@@ -67,41 +54,19 @@ mouse_filter = 2
 theme_override_styles/panel = SubResource("StyleBox_sign")
 
 [node name="Title" type="Label" parent="UI/TitleCard"]
-anchors_preset = 15
+layout_mode = 0
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-label_settings = SubResource("LabelSettings_title")
 text = "LUMBER
 JACK"
-horizontal_alignment = 1
-vertical_alignment = 1
-
-[node name="BestPanel" type="Panel" parent="UI"]
-anchor_left = 0.5
-anchor_top = 1.0
-anchor_right = 0.5
-anchor_bottom = 1.0
-offset_left = -110.0
-offset_top = -392.0
-offset_right = 110.0
-offset_bottom = -322.0
-mouse_filter = 2
-theme_override_styles/panel = SubResource("StyleBox_card")
-
-[node name="BestLabel" type="Label" parent="UI/BestPanel"]
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-label_settings = SubResource("LabelSettings_best")
-text = "BEST 0"
+label_settings = SubResource("LabelSettings_title")
 horizontal_alignment = 1
 vertical_alignment = 1
 
 [node name="PlayButton" type="Button" parent="UI"]
+anchors_preset = 7
 anchor_left = 0.5
 anchor_top = 1.0
 anchor_right = 0.5
@@ -113,8 +78,8 @@ offset_bottom = -168.0
 theme_override_colors/font_color = Color(1, 1, 1, 1)
 theme_override_colors/font_pressed_color = Color(1, 1, 1, 1)
 theme_override_font_sizes/font_size = 40
-theme_override_styles/normal = SubResource("StyleBox_btn")
+theme_override_styles/focus = SubResource("StyleBox_focus")
 theme_override_styles/hover = SubResource("StyleBox_btn")
 theme_override_styles/pressed = SubResource("StyleBox_btn_pressed")
-theme_override_styles/focus = SubResource("StyleBox_focus")
+theme_override_styles/normal = SubResource("StyleBox_btn")
 text = "PLAY"
