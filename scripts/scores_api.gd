@@ -138,6 +138,12 @@ func _rpc(func_name: String, payload: Dictionary) -> Dictionary:
 	# working because its HTTP client decompresses for real). With
 	# accept_gzip off no client requests compression and none decodes it.
 	http.accept_gzip = false
+	# Threaded HTTP hangs silently on Android (logcat: no error, no timeout
+	# firing, request never leaves the device — reproduced on an emulator and
+	# a real phone; use_threads=false makes every RPC complete). Non-threaded
+	# HTTPRequest is a non-blocking poll in _process, so the game loop keeps
+	# running while requests are in flight; uniform across platforms.
+	http.use_threads = false
 	add_child(http)
 	var headers := PackedStringArray([
 		"Content-Type: application/json",
