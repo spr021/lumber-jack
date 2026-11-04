@@ -88,7 +88,8 @@ func _process(delta: float) -> void:
 
 func _tick_countdown() -> void:
 	var secs := _seconds_until_midnight()
-	if countdown_secs >= 0 and secs > countdown_secs and scores_api:
+	if countdown_secs >= 0 and secs > countdown_secs and scores_api \
+			and scores_api.has_method("fetch_daily_leaderboard"):
 		scores_api.fetch_daily_leaderboard()  # the day rolled over on screen
 	countdown_secs = secs
 	countdown_label.text = _countdown_text(secs)
@@ -620,11 +621,22 @@ func _setup_leaderboard() -> void:
 	_build_name_dialog()
 	_build_alltime_dialog()
 	if scores_api:
-		scores_api.daily_loaded.connect(_on_daily_loaded)
 		scores_api.leaderboard_loaded.connect(_on_alltime_loaded)
-		_refresh_board()
-		scores_api.retry_pending()
-		scores_api.fetch_daily_leaderboard()
+		if scores_api.has_signal("daily_loaded"):
+			# Normal path: the autoload matches this menu's daily board.
+			scores_api.daily_loaded.connect(_on_daily_loaded)
+			_refresh_board()
+			scores_api.retry_pending()
+			scores_api.fetch_daily_leaderboard()
+		else:
+			# A game instance launched before the daily-board update still
+			# runs the old Scores autoload in memory: fall back to the
+			# all-time fetch so the board stays live instead of freezing
+			# on placeholders.
+			scores_api.leaderboard_loaded.connect(_on_daily_loaded)
+			_refresh_board()
+			scores_api.retry_pending()
+			scores_api.fetch_leaderboard()
 
 
 func _on_daily_loaded(ok: bool, data: Dictionary) -> void:
@@ -918,7 +930,10 @@ func _on_name_save() -> void:
 		"ok":
 			name_dialog.visible = false
 			_refresh_board()
-			scores_api.fetch_daily_leaderboard()
+			if scores_api.has_method("fetch_daily_leaderboard"):
+				scores_api.fetch_daily_leaderboard()
+			else:
+				scores_api.fetch_leaderboard()
 		"taken":
 			name_hint.text = "NAME TAKEN — TRY ANOTHER"
 			name_hint.visible = true
