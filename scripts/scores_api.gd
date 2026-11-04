@@ -131,6 +131,13 @@ func _tz_offset_minutes() -> int:
 func _rpc(func_name: String, payload: Dictionary) -> Dictionary:
 	var http := HTTPRequest.new()
 	http.timeout = REQUEST_TIMEOUT
+	# On the Web export the browser already decompresses gzip transparently,
+	# but HTTPRequest still reads the exposed Content-Encoding header and
+	# inflates the plain body again — which fails and yields 0 bytes, so every
+	# RPC parsed as Nil (empty leaderboard on the Web release; desktop kept
+	# working because its HTTP client decompresses for real). With
+	# accept_gzip off no client requests compression and none decodes it.
+	http.accept_gzip = false
 	add_child(http)
 	var headers := PackedStringArray([
 		"Content-Type: application/json",
